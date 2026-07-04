@@ -1,0 +1,3549 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="description" content="Tren Mágico — simulador de trenes para niños">
+<title>🚂 Tren Mágico</title>
+<style>
+  :root{
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+    --panel-bg:#fffdf5;
+    --panel-border:#e8b45a;
+    --ink:#4a3728;
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ width:100%; height:100%; overflow:hidden; position:fixed; inset:0;
+    background:#79c86e; touch-action:none; overscroll-behavior:none;
+    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+    font-family:-apple-system, "SF Pro Rounded", "Segoe UI", "Comic Sans MS", "Chalkboard SE", system-ui, sans-serif;
+    color:var(--ink);
+  }
+  #game{ position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+  #fx{ position:absolute; inset:0; width:100%; height:100%; display:block; pointer-events:none; }
+
+  /* ---------- botones genéricos ---------- */
+  .btn{
+    pointer-events:auto; border:none; cursor:pointer;
+    min-width:52px; min-height:52px; padding:6px 12px;
+    border-radius:18px; background:var(--panel-bg);
+    border:3px solid var(--panel-border);
+    box-shadow:0 4px 0 rgba(120,80,20,.35), 0 6px 14px rgba(0,0,0,.18);
+    font-size:26px; line-height:1; color:var(--ink);
+    display:flex; align-items:center; justify-content:center; gap:6px;
+    transition:transform .08s ease, box-shadow .08s ease, background .15s;
+    font-family:inherit; font-weight:700; letter-spacing:.3px;
+  }
+  .btn:active{ transform:translateY(3px) scale(.96); box-shadow:0 1px 0 rgba(120,80,20,.35); }
+  .btn.on{ background:#ffe9a8; border-color:#e08b1d; }
+  .btn.big{ min-width:64px; min-height:64px; font-size:32px; border-radius:22px; }
+  .btn.danger{ border-color:#d9534f; }
+  .btn:disabled{ opacity:.4; pointer-events:none; }
+  .btn .lbl{ font-size:13px; font-weight:800; }
+
+  /* ---------- esquinas ---------- */
+  #topLeft{ position:absolute; top:calc(10px + var(--safe-t)); left:calc(10px + var(--safe-l)); display:flex; gap:8px; align-items:center; pointer-events:none; z-index:20; }
+  #medal{
+    pointer-events:none; background:rgba(255,253,245,.92); border:3px solid var(--panel-border);
+    border-radius:18px; padding:6px 14px; display:flex; align-items:center; gap:8px;
+    box-shadow:0 4px 10px rgba(0,0,0,.15); font-weight:800; font-size:18px;
+  }
+  #medal .ic{ font-size:24px; }
+  #topRight{ position:absolute; top:calc(10px + var(--safe-t)); right:calc(10px + var(--safe-r)); display:flex; gap:10px; z-index:20; }
+
+  /* ---------- barra inferior ---------- */
+  #bottomBar{
+    position:absolute; left:50%; transform:translateX(-50%);
+    bottom:calc(12px + var(--safe-b));
+    display:flex; gap:14px; z-index:20; align-items:flex-end;
+  }
+
+  /* ---------- selector de color ---------- */
+  #colorPicker{
+    position:absolute; left:50%; transform:translateX(-50%);
+    bottom:calc(92px + var(--safe-b)); z-index:25;
+    background:var(--panel-bg); border:3px solid var(--panel-border); border-radius:22px;
+    padding:12px 14px; display:none; gap:12px; align-items:center;
+    box-shadow:0 8px 24px rgba(0,0,0,.25);
+    animation:pop .18s ease;
+  }
+  #colorPicker.show{ display:flex; }
+  .colorDot{
+    width:52px; height:52px; border-radius:50%; border:4px solid #fff; cursor:pointer;
+    box-shadow:0 3px 8px rgba(0,0,0,.3); pointer-events:auto;
+    transition:transform .1s;
+  }
+  .colorDot:active{ transform:scale(.9); }
+
+  /* ---------- panel modo obra ---------- */
+  #buildPanel{
+    position:absolute; left:50%; transform:translateX(-50%);
+    bottom:calc(92px + var(--safe-b)); z-index:25;
+    background:var(--panel-bg); border:3px solid #e08b1d; border-radius:22px;
+    padding:10px 12px; display:none; gap:10px; align-items:center;
+    box-shadow:0 8px 24px rgba(0,0,0,.25); animation:pop .18s ease;
+  }
+  #buildPanel.show{ display:flex; }
+  #buildBand{
+    position:absolute; inset:0; pointer-events:none; z-index:15; display:none;
+    border:6px dashed rgba(240,160,30,.85); border-radius:4px;
+    box-shadow:inset 0 0 40px rgba(240,160,30,.25);
+  }
+  #buildBand.show{ display:block; }
+  #buildHint{
+    position:absolute; top:calc(64px + var(--safe-t)); left:50%; transform:translateX(-50%);
+    background:rgba(255,240,200,.95); border:2px solid #e08b1d; color:#7a4d10;
+    padding:6px 16px; border-radius:16px; font-weight:800; font-size:15px;
+    pointer-events:none; z-index:16; display:none; text-align:center; max-width:88vw;
+  }
+  #buildHint.show{ display:block; }
+
+  /* ---------- panel tren ---------- */
+  #trainPanel{
+    position:absolute; z-index:22; display:none; flex-direction:column; gap:8px;
+    background:var(--panel-bg); border:3px solid var(--panel-border); border-radius:20px;
+    padding:10px; box-shadow:0 10px 26px rgba(0,0,0,.28); animation:pop .18s ease;
+    width:238px;
+  }
+  #trainPanel.show{ display:flex; }
+  #trainPanel .row{ display:flex; gap:8px; justify-content:center; align-items:center; }
+  #trainPanel .btn{ min-width:46px; min-height:46px; font-size:22px; border-radius:14px; padding:4px 8px; }
+  #tpName{ text-align:center; font-weight:900; font-size:15px; letter-spacing:.5px; }
+  .sliderWrap{ display:flex; flex-direction:column; gap:2px; padding:0 4px; }
+  .sliderIcons{ display:flex; justify-content:space-between; font-size:16px; padding:0 2px; }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:34px; border-radius:17px;
+    background:linear-gradient(90deg,#9be09b 0%, #ffe27a 50%, #ff9d76 100%);
+    border:3px solid var(--panel-border); outline:none; pointer-events:auto;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:40px; height:40px; border-radius:50%;
+    background:#fff; border:4px solid #e08b1d; box-shadow:0 2px 6px rgba(0,0,0,.3); cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:38px; height:38px; border-radius:50%;
+    background:#fff; border:4px solid #e08b1d; box-shadow:0 2px 6px rgba(0,0,0,.3); cursor:pointer;
+  }
+
+  /* ---------- UI cabina ---------- */
+  #cabUI{ position:absolute; inset:0; z-index:30; display:none; pointer-events:none; }
+  #cabUI.show{ display:block; }
+  #btnBackMap{ position:absolute; top:calc(12px + var(--safe-t)); left:calc(12px + var(--safe-l)); }
+  #btnHorn{
+    position:absolute; right:calc(18px + var(--safe-r)); bottom:calc(120px + var(--safe-b));
+    width:86px; height:86px; border-radius:50%; font-size:40px;
+    background:#ffd94d; border-color:#d98a12;
+  }
+  #cabSpeed{
+    position:absolute; left:calc(18px + var(--safe-l)); bottom:calc(28px + var(--safe-b));
+    width:min(300px, 44vw); background:rgba(255,253,245,.9); border:3px solid var(--panel-border);
+    border-radius:20px; padding:8px 12px; pointer-events:auto;
+  }
+  #btnCabStop{ position:absolute; right:calc(18px + var(--safe-r)); bottom:calc(28px + var(--safe-b)); }
+
+  /* ---------- ajustes ---------- */
+  #settingsPanel{
+    position:absolute; top:calc(76px + var(--safe-t)); right:calc(12px + var(--safe-r)); z-index:26;
+    background:var(--panel-bg); border:3px solid var(--panel-border); border-radius:20px;
+    padding:12px; display:none; flex-direction:column; gap:10px; width:230px;
+    box-shadow:0 10px 26px rgba(0,0,0,.28); animation:pop .18s ease;
+  }
+  #settingsPanel.show{ display:flex; }
+  #settingsPanel .btn{ font-size:17px; justify-content:flex-start; }
+  .holdBtn{ position:relative; overflow:hidden; }
+  .holdBtn .fill{
+    position:absolute; left:0; top:0; bottom:0; width:0%;
+    background:rgba(217,83,79,.35); border-radius:14px; pointer-events:none;
+  }
+
+  /* ---------- toast logros ---------- */
+  #toast{
+    position:absolute; top:calc(70px + var(--safe-t)); left:50%; transform:translateX(-50%) scale(0);
+    z-index:40; background:#fff8e1; border:4px solid #f2b705; border-radius:24px;
+    padding:12px 22px; display:flex; align-items:center; gap:12px;
+    box-shadow:0 12px 30px rgba(0,0,0,.3); pointer-events:none;
+    transition:transform .3s cubic-bezier(.2,1.6,.4,1);
+    font-size:18px; font-weight:900;
+  }
+  #toast.show{ transform:translateX(-50%) scale(1); }
+  #toast .star{ font-size:34px; }
+
+  /* ---------- onboarding ---------- */
+  #bubble{
+    position:absolute; z-index:45; background:#fff; border:4px solid #5aa9e6; border-radius:22px;
+    padding:12px 18px; font-size:19px; font-weight:900; color:#20516e;
+    box-shadow:0 10px 26px rgba(0,0,0,.3); display:none; max-width:280px; text-align:center;
+    pointer-events:none; animation:pop .25s ease;
+  }
+  #bubble.show{ display:block; }
+  #bubble .skip{ pointer-events:auto; position:absolute; top:-16px; right:-16px; width:36px; height:36px;
+    border-radius:50%; background:#fff; border:3px solid #5aa9e6; font-size:16px; font-weight:900; color:#20516e;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 3px 8px rgba(0,0,0,.25);
+  }
+  #hand{ position:absolute; z-index:46; font-size:44px; pointer-events:none; display:none;
+    filter:drop-shadow(0 4px 6px rgba(0,0,0,.35)); }
+  #hand.show{ display:block; animation:tapTap 1.1s ease-in-out infinite; }
+  @keyframes tapTap{
+    0%,100%{ transform:translate(0,0) scale(1); }
+    50%{ transform:translate(-6px,-14px) scale(1.15); }
+  }
+  @keyframes pop{ 0%{ transform:scale(.6); opacity:0; } 100%{ transform:scale(1); opacity:1; } }
+  #bubble.show.center{ animation:pop .25s ease; }
+
+  .pulseGlow{ animation:pulseGlow 1.2s ease-in-out infinite; }
+  @keyframes pulseGlow{
+    0%,100%{ box-shadow:0 4px 0 rgba(120,80,20,.35), 0 0 0 0 rgba(90,169,230,.8); }
+    50%{ box-shadow:0 4px 0 rgba(120,80,20,.35), 0 0 0 14px rgba(90,169,230,0); }
+  }
+  @media (max-height:420px){
+    .btn.big{ min-width:54px; min-height:54px; font-size:26px; }
+    #trainPanel{ width:212px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<canvas id="fx"></canvas>
+
+<div id="buildBand"></div>
+<div id="buildHint">Arrastra desde un punto brillante ✨ para crear vías</div>
+
+<div id="topLeft">
+  <div id="medal"><span class="ic" id="medalIcon">🕐</span><span id="medalTime">0:00</span></div>
+</div>
+<div id="topRight">
+  <button class="btn" id="btnSound" title="Sonido">🔊</button>
+  <button class="btn" id="btnFull" title="Pantalla completa">⛶</button>
+  <button class="btn" id="btnSettings" title="Ajustes">⚙️</button>
+</div>
+
+<div id="bottomBar">
+  <button class="btn big" id="btnNewTrain" title="Nuevo tren">➕🚂</button>
+  <button class="btn big" id="btnBuild" title="Construir vías">🛤️</button>
+</div>
+
+<div id="colorPicker"></div>
+
+<div id="buildPanel">
+  <button class="btn" id="toolTrack" title="Trazar vía">✏️🛤️</button>
+  <button class="btn" id="toolErase" title="Borrar vía">🧽</button>
+  <button class="btn" id="toolStation" title="Estación">🚉</button>
+  <button class="btn" id="btnBuildDone" title="Terminar" style="background:#d3f2c8;border-color:#37b24d;">✔️</button>
+</div>
+
+<div id="trainPanel">
+  <div id="tpName">TREN</div>
+  <div class="row">
+    <button class="btn" id="tpPlay" title="Arrancar/Parar">▶️</button>
+    <button class="btn" id="tpReverse" title="Cambiar sentido">🔄</button>
+    <button class="btn" id="tpFollow" title="Seguir tren">🎯</button>
+    <button class="btn" id="tpCab" title="Vista maquinista">👁️</button>
+  </div>
+  <div class="sliderWrap">
+    <div class="sliderIcons"><span>🐢</span><span>🚶</span><span>🐇</span></div>
+    <input type="range" id="tpSpeed" min="0" max="100" value="55">
+  </div>
+  <div class="row">
+    <button class="btn" id="tpAddWagon" title="Añadir vagón">➕🚃</button>
+    <button class="btn" id="tpDelWagon" title="Quitar vagón">➖🚃</button>
+    <button class="btn danger holdBtn" id="tpDelete" title="Mantén pulsado para borrar">🗑️<div class="fill"></div></button>
+  </div>
+</div>
+
+<div id="cabUI">
+  <button class="btn big" id="btnBackMap" title="Volver al mapa">🗺️</button>
+  <button class="btn" id="btnHorn" title="¡Bocina!">📯</button>
+  <div id="cabSpeed">
+    <div class="sliderIcons"><span>🐢</span><span>🚶</span><span>🐇</span></div>
+    <input type="range" id="cabSpeedRange" min="0" max="100" value="55">
+  </div>
+  <button class="btn big" id="btnCabStop" title="Parar/Arrancar">⏸️</button>
+</div>
+
+<div id="settingsPanel">
+  <button class="btn" id="stTutorial">💬 <span class="lbl">Ver tutorial</span></button>
+  <button class="btn danger holdBtn" id="stReset">🧹 <span class="lbl">Empezar de nuevo (mantén)</span><div class="fill"></div></button>
+  <div style="text-align:center;font-size:12px;opacity:.7;">Tren Mágico v1 · hecho con ❤️</div>
+</div>
+
+<div id="toast"><span class="star">⭐</span><span id="toastText">¡Logro!</span></div>
+<div id="bubble"><span id="bubbleText"></span><div class="skip" id="bubbleSkip">✕</div></div>
+<div id="hand">👆</div>
+
+<script>
+"use strict";
+/* ============================================================
+   🚂 TREN MÁGICO — juego completo en un solo fichero
+   Secciones: utils · audio · vías · trenes · render · cabina ·
+   construcción · entrada · UI · persistencia · bucle
+   ============================================================ */
+
+/* ---------------- utilidades ---------------- */
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const dist2 = (ax, ay, bx, by) => { const dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; };
+const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
+const rand = (a, b) => a + Math.random() * (b - a);
+const randi = (a, b) => Math.floor(rand(a, b + 1));
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+function angNorm(a){ while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; return a; }
+function rot(x, y, a){ const c = Math.cos(a), s = Math.sin(a); return [x * c - y * s, x * s + y * c]; }
+// PRNG con semilla para decoración estable
+function mulberry32(seed){ let t = seed >>> 0; return function(){ t += 0x6D2B79F5; let r = Math.imul(t ^ t >>> 15, 1 | t); r ^= r + Math.imul(r ^ r >>> 7, 61 | r); return ((r ^ r >>> 14) >>> 0) / 4294967296; }; }
+
+/* ---------------- constantes del juego ---------------- */
+const SQ = 0.62;                 // aplastado vertical 2.5D
+const WORLD = { w: 2300, h: 1500 };
+const MAX_TRAINS = 5, MAX_WAGONS = 8;
+const LOCO_LEN = 46, WAGON_LEN = 36, CAR_GAP = 7;
+const MAX_SPEED = 130;           // unidades/s
+const RAIL_GAP = 13;             // separación raíles (mundo)
+const TRAIN_COLORS = [
+  { c: "#e23d3d", d: "#a02020", name: "ROJO" },
+  { c: "#2f7fe0", d: "#1c56a0", name: "AZUL" },
+  { c: "#37b24d", d: "#20732f", name: "VERDE" },
+  { c: "#f2b705", d: "#b08205", name: "AMARILLO" },
+  { c: "#8e5bd6", d: "#5f3a96", name: "MORADO" }
+];
+const WAGON_TYPES = ["pasajeros", "mercancias", "cisterna", "madera"];
+const SAVE_KEY = "trenMagico_v1";
+
+/* ---------------- estado global ---------------- */
+let canvas, ctx, fxCanvas, fxCtx, W = 0, H = 0, DPR = 1;
+let nodes = new Map(), segs = new Map(), stationsMap = new Map(), switches = new Map();
+let nid = 1, sid = 1, stationId = 1, trainId = 1;
+let trains = [];
+let particles = [], screenParticles = [];
+let decor = [], hills = [], clouds = [], birds = [];
+let riverPath = [];              // polilínea del río
+const RIVER_W = 64;
+let cam = { x: 1050, y: 800, z: 0.9, follow: 0, zoomAnim: null };
+let selectedTrain = null;
+let viewMode = "aerial";         // aerial | cab
+let buildMode = false, buildTool = "track";
+let medalTime = 0, buildCount = 0;
+let quality = 2;                 // 2 alto, 1 medio, 0 bajo
+let gameTime = 0;
+let audioStarted = false;
+let onboarding = { active: false, step: 0, done: false };
+let achievementsDone = {};
+let spansCache = new Map();      // segId -> [{train, lo, hi}]
+let lastBellAt = -10;
+let ui = {};                     // referencias DOM
+
+/* ---------------- AUDIO (Web Audio, procedural) ---------------- */
+const Snd = {
+  ctx: null, master: null, musicGain: null, fxGain: null,
+  muted: false, musicTimer: 0, nextNote: 0, slot: 0, melodyIdx: 2,
+  init(){
+    if (this.ctx) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.muted ? 0 : 1;
+      this.master.connect(this.ctx.destination);
+      this.musicGain = this.ctx.createGain();
+      this.musicGain.gain.value = 0.14;
+      this.musicGain.connect(this.master);
+      this.fxGain = this.ctx.createGain();
+      this.fxGain.gain.value = 0.5;
+      this.fxGain.connect(this.master);
+      this.nextNote = this.ctx.currentTime + 0.1;
+      audioStarted = true;
+    } catch(e){ /* sin audio */ }
+  },
+  resume(){ if (this.ctx && this.ctx.state === "suspended") this.ctx.resume().catch(()=>{}); },
+  suspend(){ if (this.ctx && this.ctx.state === "running") this.ctx.suspend().catch(()=>{}); },
+  setMuted(m){
+    this.muted = m;
+    if (this.master) this.master.gain.linearRampToValueAtTime(m ? 0 : 1, this.ctx.currentTime + 0.15);
+  },
+  // voz genérica
+  tone(o){
+    if (!this.ctx || this.muted) return;
+    const t0 = o.at !== undefined ? o.at : this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = o.type || "sine";
+    osc.frequency.setValueAtTime(o.f, t0);
+    if (o.glide) osc.frequency.exponentialRampToValueAtTime(Math.max(20, o.glide), t0 + (o.dur || 0.3));
+    let node = osc;
+    if (o.vib){
+      const lfo = this.ctx.createOscillator(), lg = this.ctx.createGain();
+      lfo.frequency.value = o.vib; lg.gain.value = o.vibAmt || o.f * 0.02;
+      lfo.connect(lg); lg.connect(osc.frequency); lfo.start(t0); lfo.stop(t0 + (o.dur || 0.3) + 0.1);
+    }
+    if (o.lp){
+      const f = this.ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = o.lp;
+      node.connect(f); node = f;
+    }
+    const g = this.ctx.createGain();
+    const v = o.vol || 0.2, atk = o.atk || 0.01, dur = o.dur || 0.3;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(v, t0 + atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    node.connect(g); g.connect(o.dest || this.fxGain);
+    osc.start(t0); osc.stop(t0 + dur + 0.05);
+  },
+  noiseBurst(o){
+    if (!this.ctx || this.muted) return;
+    const t0 = o.at !== undefined ? o.at : this.ctx.currentTime;
+    const dur = o.dur || 0.1;
+    const len = Math.max(1, Math.floor(this.ctx.sampleRate * dur));
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = this.ctx.createBufferSource(); src.buffer = buf;
+    const f = this.ctx.createBiquadFilter();
+    f.type = o.hp ? "highpass" : "bandpass";
+    f.frequency.value = o.freq || 1000; f.Q.value = o.q || 1;
+    const g = this.ctx.createGain(); g.gain.value = o.vol || 0.2;
+    src.connect(f); f.connect(g); g.connect(this.fxGain);
+    src.start(t0);
+  },
+  pop(){ this.tone({ f: 620, glide: 880, type: "sine", dur: 0.09, vol: 0.25 }); },
+  deny(){ this.tone({ f: 220, glide: 160, type: "square", dur: 0.15, vol: 0.08, lp: 900 }); },
+  clack(){
+    this.noiseBurst({ freq: 2400, q: 2, dur: 0.05, vol: 0.3 });
+    this.noiseBurst({ freq: 1500, q: 2, dur: 0.06, vol: 0.25, at: this.ctx ? this.ctx.currentTime + 0.07 : 0 });
+  },
+  whistle(long){
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime, dur = long ? 0.9 : 0.45;
+    this.tone({ f: 587, type: "triangle", dur, vol: 0.22, vib: 6, vibAmt: 9, at: t });
+    this.tone({ f: 740, type: "triangle", dur, vol: 0.18, vib: 6, vibAmt: 11, at: t });
+    this.tone({ f: 880, type: "sine", dur: dur * 0.8, vol: 0.06, at: t });
+    this.noiseBurst({ freq: 3000, q: 0.7, dur: dur * 0.7, vol: 0.05, at: t });
+  },
+  bell(){
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    this.tone({ f: 1318, type: "sine", dur: 0.5, vol: 0.16, at: t });
+    this.tone({ f: 1318 * 2.7, type: "sine", dur: 0.25, vol: 0.05, at: t });
+    this.tone({ f: 1318, type: "sine", dur: 0.5, vol: 0.13, at: t + 0.32 });
+  },
+  boing(){
+    this.tone({ f: 300, glide: 80, type: "square", dur: 0.4, vol: 0.14, lp: 1200 });
+    this.tone({ f: 500, glide: 900, type: "sine", dur: 0.35, vol: 0.12, at: this.ctx ? this.ctx.currentTime + 0.05 : 0 });
+  },
+  bump(){ this.noiseBurst({ freq: 300, q: 1, dur: 0.12, vol: 0.25 }); },
+  chuff(vol){ this.noiseBurst({ freq: 900, q: 0.8, dur: 0.08, vol: Math.min(0.1, vol) }); },
+  fanfare(){
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime, seq = [523, 659, 784, 1047];
+    seq.forEach((f, i) => {
+      this.tone({ f, type: "triangle", dur: 0.28, vol: 0.16, at: t + i * 0.11, lp: 3000 });
+      this.tone({ f: f * 2, type: "sine", dur: 0.2, vol: 0.05, at: t + i * 0.11 });
+    });
+    this.tone({ f: 1047, type: "triangle", dur: 0.7, vol: 0.15, at: t + 0.5, lp: 3000 });
+  },
+  // música de fondo: cajita de música pentatónica
+  PENTA: [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 784.0, 880.0],
+  updateMusic(){
+    if (!this.ctx || this.muted) return;
+    const ahead = this.ctx.currentTime + 0.7;
+    while (this.nextNote < ahead){
+      const t = this.nextNote, slot = this.slot;
+      // melodía: paseo aleatorio suave con silencios
+      if (slot % 2 === 0 && Math.random() < 0.78){
+        this.melodyIdx = clamp(this.melodyIdx + randi(-2, 2), 0, this.PENTA.length - 1);
+        const f = this.PENTA[this.melodyIdx];
+        this.tone({ f, type: "triangle", dur: 0.55, vol: 0.35, at: t, lp: 2200, dest: this.musicGain });
+        this.tone({ f: f * 2.01, type: "sine", dur: 0.3, vol: 0.08, at: t, dest: this.musicGain });
+      }
+      if (slot % 8 === 0){ // bajo suave
+        const f = this.PENTA[slot % 16 === 0 ? 0 : 3] / 2;
+        this.tone({ f, type: "sine", dur: 1.4, vol: 0.3, at: t, dest: this.musicGain });
+      }
+      if (slot % 16 === 12 && Math.random() < 0.5){ // campanita
+        this.tone({ f: pick(this.PENTA) * 2, type: "sine", dur: 0.8, vol: 0.1, at: t, dest: this.musicGain });
+      }
+      this.nextNote += 0.30;
+      this.slot++;
+    }
+  }
+};
+/* ============================================================
+   SISTEMA DE VÍAS — grafo de nodos + segmentos bezier cúbicos
+   ============================================================ */
+function addNode(x, y){
+  const n = { id: nid++, x, y, segs: [] };
+  nodes.set(n.id, n);
+  return n;
+}
+function cubic(p0x, p0y, c1x, c1y, c2x, c2y, p3x, p3y, t){
+  const u = 1 - t, uu = u * u, tt = t * t;
+  const a = u * uu, b = 3 * uu * t, c = 3 * u * tt, d = t * tt;
+  return [a * p0x + b * c1x + c * c2x + d * p3x, a * p0y + b * c1y + c * c2y + d * p3y];
+}
+function buildLUT(seg){
+  const na = nodes.get(seg.a), nb = nodes.get(seg.b);
+  const approx = dist(na.x, na.y, nb.x, nb.y) * 1.3 + 10;
+  const N = clamp(Math.ceil(approx / 11), 8, 60);
+  const px = [], py = [], cum = [0];
+  for (let i = 0; i <= N; i++){
+    const [x, y] = cubic(na.x, na.y, seg.c[0], seg.c[1], seg.c[2], seg.c[3], nb.x, nb.y, i / N);
+    px.push(x); py.push(y);
+    if (i > 0) cum.push(cum[i - 1] + dist(px[i - 1], py[i - 1], x, y));
+  }
+  seg.px = px; seg.py = py; seg.cum = cum; seg.len = cum[N];
+  seg.paths = null; // caches de dibujo, se regeneran
+}
+// posición y tangente a distancia s (local 0..len, sentido a→b)
+function lutAt(seg, s){
+  s = clamp(s, 0, seg.len);
+  const cum = seg.cum; let i = 1;
+  while (i < cum.length - 1 && cum[i] < s) i++;
+  const s0 = cum[i - 1], s1 = cum[i], t = s1 > s0 ? (s - s0) / (s1 - s0) : 0;
+  const x = lerp(seg.px[i - 1], seg.px[i], t), y = lerp(seg.py[i - 1], seg.py[i], t);
+  let tx = seg.px[i] - seg.px[i - 1], ty = seg.py[i] - seg.py[i - 1];
+  const m = Math.hypot(tx, ty) || 1; tx /= m; ty /= m;
+  return { x, y, tx, ty };
+}
+function outwardTangent(seg, nodeId){
+  if (seg.a === nodeId){ const p = lutAt(seg, 0.5); return [p.tx, p.ty]; }
+  const p = lutAt(seg, seg.len - 0.5); return [-p.tx, -p.ty];
+}
+function addSeg(aId, bId, c1x, c1y, c2x, c2y){
+  const s = { id: sid++, a: aId, b: bId, c: [c1x, c1y, c2x, c2y], bridges: [], stations: [] };
+  segs.set(s.id, s);
+  nodes.get(aId).segs.push(s.id);
+  nodes.get(bId).segs.push(s.id);
+  buildLUT(s);
+  computeWaterSpans(s);
+  refreshSwitchAt(aId); refreshSwitchAt(bId);
+  return s;
+}
+function addStraight(aId, bId){
+  const na = nodes.get(aId), nb = nodes.get(bId);
+  return addSeg(aId, bId, lerp(na.x, nb.x, 1/3), lerp(na.y, nb.y, 1/3), lerp(na.x, nb.x, 2/3), lerp(na.y, nb.y, 2/3));
+}
+// pieza de arco: desde pos con rumbo a (rad), giro delta (rad, + = horario), radio R
+function arcPiece(x0, y0, a, delta, R){
+  const dirx = Math.cos(a), diry = Math.sin(a);
+  const s = Math.sign(delta) || 1;
+  // centro = p0 + perp*R  (perp = dir rotado 90° hacia el lado del giro)
+  const perpx = -Math.sin(a) * s, perpy = Math.cos(a) * s;
+  const ccx = x0 + perpx * R, ccy = y0 + perpy * R;
+  const [rx, ry] = rot(x0 - ccx, y0 - ccy, delta);
+  const x3 = ccx + rx, y3 = ccy + ry;
+  const a1 = a + delta;
+  const k = (4 / 3) * Math.tan(Math.abs(delta) / 4) * R;
+  return {
+    p0: [x0, y0], p3: [x3, y3],
+    c1: [x0 + dirx * k, y0 + diry * k],
+    c2: [x3 - Math.cos(a1) * k, y3 - Math.sin(a1) * k],
+    endA: a1
+  };
+}
+function straightPiece(x0, y0, a, L){
+  const dx = Math.cos(a), dy = Math.sin(a);
+  const x3 = x0 + dx * L, y3 = y0 + dy * L;
+  return { p0: [x0, y0], p3: [x3, y3], c1: [x0 + dx * L / 3, y0 + dy * L / 3], c2: [x0 + dx * L * 2/3, y0 + dy * L * 2/3], endA: a };
+}
+function removeSeg(id){
+  const s = segs.get(id);
+  if (!s) return;
+  for (const stId of s.stations.slice()) stationsMap.delete(stId);
+  s.stations.length = 0;
+  for (const nId of [s.a, s.b]){
+    const n = nodes.get(nId);
+    if (!n) continue;
+    const i = n.segs.indexOf(id);
+    if (i >= 0) n.segs.splice(i, 1);
+    if (n.segs.length === 0) nodes.delete(nId);
+    else refreshSwitchAt(nId);
+  }
+  segs.delete(id);
+  recomputeTunnelMouths();
+}
+/* ---------------- agujas (switches) ---------------- */
+function refreshSwitchAt(nodeId){
+  const n = nodes.get(nodeId);
+  if (!n || n.segs.length < 3){ switches.delete(nodeId); return; }
+  // buscar la entrada que ofrece 2+ salidas válidas (lado "punta" de la aguja)
+  let best = null;
+  for (const eId of n.segs){
+    const eSeg = segs.get(eId);
+    const [ox, oy] = outwardTangent(eSeg, nodeId);
+    const dirx = -ox, diry = -oy; // dirección de viaje al entrar por eId
+    const opts = [];
+    for (const oId of n.segs){
+      if (oId === eId) continue;
+      const [tx, ty] = outwardTangent(segs.get(oId), nodeId);
+      if (dirx * tx + diry * ty > 0.17) opts.push(oId);
+    }
+    if (opts.length >= 2 && (!best || opts.length > best.options.length)){
+      best = { entry: eId, options: opts };
+    }
+  }
+  if (!best){ switches.delete(nodeId); return; }
+  const prev = switches.get(nodeId);
+  const active = prev && best.options.includes(prev.active) ? prev.active : best.options[0];
+  switches.set(nodeId, { entry: best.entry, options: best.options, active });
+}
+function toggleSwitch(nodeId){
+  const sw = switches.get(nodeId);
+  if (!sw) return false;
+  const i = sw.options.indexOf(sw.active);
+  sw.active = sw.options[(i + 1) % sw.options.length];
+  sw.anim = 1; // animación palanca
+  Snd.clack();
+  onboardingEvent("switch");
+  return true;
+}
+// siguiente traversal al llegar a un nodo con dirección de viaje (dirx,diry)
+function nextTraversal(nodeId, dirx, diry, fromSegId){
+  const n = nodes.get(nodeId);
+  if (!n) return null;
+  const cands = [];
+  for (const sIdc of n.segs){
+    if (sIdc === fromSegId) continue;
+    const sg = segs.get(sIdc);
+    const [tx, ty] = outwardTangent(sg, nodeId);
+    const d = dirx * tx + diry * ty;
+    if (d > 0.17) cands.push({ sg, d });
+  }
+  if (!cands.length) return null;
+  let chosen = null;
+  if (cands.length > 1){
+    const sw = switches.get(nodeId);
+    if (sw){ chosen = cands.find(c => c.sg.id === sw.active) || null; }
+    if (!chosen){ cands.sort((a, b) => b.d - a.d); chosen = cands[0]; }
+  } else chosen = cands[0];
+  return { seg: chosen.sg, dir: chosen.sg.a === nodeId ? 1 : -1 };
+}
+/* ---------------- estaciones ---------------- */
+function addStation(segId, s){
+  const seg = segs.get(segId);
+  if (!seg) return null;
+  s = clamp(s, 25, seg.len - 25);
+  const p = lutAt(seg, s);
+  const st = { id: stationId++, seg: segId, s, x: p.x, y: p.y, tx: p.tx, ty: p.ty };
+  stationsMap.set(st.id, st);
+  seg.stations.push(st.id);
+  return st;
+}
+/* ---------------- agua / puentes / túneles ---------------- */
+function distToPolyline(x, y, pts){
+  let best = 1e9;
+  for (let i = 1; i < pts.length; i++){
+    const ax = pts[i-1][0], ay = pts[i-1][1], bx = pts[i][0], by = pts[i][1];
+    const dx = bx - ax, dy = by - ay, L2 = dx*dx + dy*dy || 1;
+    const t = clamp(((x-ax)*dx + (y-ay)*dy) / L2, 0, 1);
+    const d2 = dist2(x, y, ax + dx*t, ay + dy*t);
+    if (d2 < best) best = d2;
+  }
+  return Math.sqrt(best);
+}
+function nearWater(x, y, pad){
+  return distToPolyline(x, y, riverPath) < RIVER_W/2 + pad;
+}
+function computeWaterSpans(seg){
+  seg.bridges = [];
+  let inW = false, s0 = 0;
+  const cum = seg.cum;
+  for (let i = 0; i < seg.px.length; i++){
+    const w = nearWater(seg.px[i], seg.py[i], 4);
+    if (w && !inW){ inW = true; s0 = cum[i]; }
+    if ((!w || i === seg.px.length - 1) && inW){
+      inW = false;
+      seg.bridges.push([Math.max(0, s0 - 16), Math.min(seg.len, cum[i] + 16)]);
+    }
+  }
+}
+function insideHill(x, y, h, f){
+  const dx = (x - h.x) / (h.rx * f), dy = (y - h.y) / (h.ry * f);
+  return dx*dx + dy*dy < 1;
+}
+function pointInAnyHill(x, y, f){
+  for (const h of hills) if (insideHill(x, y, h, f)) return h;
+  return null;
+}
+function recomputeTunnelMouths(){
+  for (const h of hills){
+    h.mouths = [];
+    for (const seg of segs.values()){
+      let was = false;
+      for (let i = 0; i < seg.px.length; i++){
+        const now = insideHill(seg.px[i], seg.py[i], h, 0.94);
+        if (now !== was && i > 0){
+          const p = lutAt(seg, (seg.cum[i-1] + seg.cum[i]) / 2);
+          h.mouths.push({ x: p.x, y: p.y, tx: p.tx, ty: p.ty });
+        }
+        was = now;
+      }
+    }
+  }
+}
+/* ---------------- búsquedas espaciales ---------------- */
+function nearestTrackPoint(x, y, maxD){
+  let best = null, bd = maxD * maxD;
+  for (const seg of segs.values()){
+    for (let i = 0; i < seg.px.length; i++){
+      const d2 = dist2(x, y, seg.px[i], seg.py[i]);
+      if (d2 < bd){ bd = d2; best = { seg, s: seg.cum[i], d: Math.sqrt(d2) }; }
+    }
+  }
+  return best;
+}
+function nearestNode(x, y, maxD){
+  let best = null, bd = maxD * maxD;
+  for (const n of nodes.values()){
+    const d2 = dist2(x, y, n.x, n.y);
+    if (d2 < bd){ bd = d2; best = n; }
+  }
+  return best;
+}
+function openEnds(){
+  const out = [];
+  for (const n of nodes.values()) if (n.segs.length === 1) out.push(n);
+  return out;
+}
+
+/* ============================================================
+   MUNDO INICIAL — óvalo + apartadero con estación + paisaje
+   ============================================================ */
+let initialStationSegId = 0, firstSwitchNode = 0;
+function buildInitialTrack(){
+  // óvalo
+  const yT = 520, yB = 880, xL = 700, xR = 1300, R = 180, K = R * 0.5523;
+  const nTL = addNode(xL, yT), nTR = addNode(xR, yT);
+  const nRm = addNode(xR + R, (yT + yB) / 2);
+  const nBRc = addNode(xR, yB);
+  const nS2 = addNode(1240, yB), nS1 = addNode(760, yB);
+  const nBLc = addNode(xL, yB);
+  const nLm = addNode(xL - R, (yT + yB) / 2);
+  addStraight(nTL.id, nTR.id);
+  addSeg(nTR.id, nRm.id, xR + K, yT, xR + R, (yT+yB)/2 - K);           // arco TR
+  addSeg(nRm.id, nBRc.id, xR + R, (yT+yB)/2 + K, xR + K, yB);          // arco BR
+  addStraight(nBRc.id, nS2.id);
+  addStraight(nS2.id, nS1.id);
+  addStraight(nS1.id, nBLc.id);
+  addSeg(nBLc.id, nLm.id, xL - K, yB, xL - R, (yT+yB)/2 + K);          // arco BL
+  addSeg(nLm.id, nTL.id, xL - R, (yT+yB)/2 - K, xL - K, yT);           // arco TL
+  // apartadero (vía de paso) bajo la recta inferior
+  const Rb = 100;
+  const a1 = arcPiece(nS1.x, nS1.y, 0, Math.PI/4, Rb);
+  const nA = addNode(a1.p3[0], a1.p3[1]);
+  addSeg(nS1.id, nA.id, a1.c1[0], a1.c1[1], a1.c2[0], a1.c2[1]);
+  const a2 = arcPiece(nA.x, nA.y, a1.endA, -Math.PI/4, Rb);
+  const nB = addNode(a2.p3[0], a2.p3[1]);
+  addSeg(nA.id, nB.id, a2.c1[0], a2.c1[1], a2.c2[0], a2.c2[1]);
+  const b1 = arcPiece(nS2.x, nS2.y, Math.PI, -Math.PI/4, Rb);
+  const nC = addNode(b1.p3[0], b1.p3[1]);
+  addSeg(nS2.id, nC.id, b1.c1[0], b1.c1[1], b1.c2[0], b1.c2[1]);
+  const b2 = arcPiece(nC.x, nC.y, b1.endA, Math.PI/4, Rb);
+  const nD = addNode(b2.p3[0], b2.p3[1]);
+  addSeg(nC.id, nD.id, b2.c1[0], b2.c1[1], b2.c2[0], b2.c2[1]);
+  const loop = addStraight(nB.id, nD.id); // recta del apartadero
+  initialStationSegId = loop.id;
+  addStation(loop.id, loop.len / 2);
+  firstSwitchNode = nS1.id;
+  // espolón hacia el río: deja un extremo libre para invitar a construir
+  const e1 = arcPiece(nBRc.x, nBRc.y, 0, Math.PI/4, 110);
+  const nE1 = addNode(e1.p3[0], e1.p3[1]);
+  addSeg(nBRc.id, nE1.id, e1.c1[0], e1.c1[1], e1.c2[0], e1.c2[1]);
+  const e2 = arcPiece(nE1.x, nE1.y, e1.endA, -Math.PI/4, 110);
+  const nE2 = addNode(e2.p3[0], e2.p3[1]);
+  addSeg(nE1.id, nE2.id, e2.c1[0], e2.c1[1], e2.c2[0], e2.c2[1]);
+  const e3 = straightPiece(nE2.x, nE2.y, e2.endA, 120);
+  const nE3 = addNode(e3.p3[0], e3.p3[1]);
+  addSeg(nE2.id, nE3.id, e3.c1[0], e3.c1[1], e3.c2[0], e3.c2[1]);
+  // aguja S1: por defecto hacia el apartadero (el tren vuelve a casa)
+  const sw = switches.get(nS1.id);
+  if (sw){
+    const branch = nodes.get(nS1.id).segs.find(id => { const sg = segs.get(id); return sg.a === nS1.id && sg.b === nA.id || sg.b === nS1.id && sg.a === nA.id; });
+    if (branch && sw.options.includes(branch)) sw.active = branch;
+  }
+  recomputeTunnelMouths();
+}
+function buildTerrain(){
+  const rng = mulberry32(987654);
+  // río: serpentea de norte a sur por el este
+  riverPath = [];
+  let rx = 1760;
+  for (let y = -60; y <= WORLD.h + 60; y += 110){
+    rx += (rng() - 0.5) * 90;
+    rx = clamp(rx, 1680, 1880);
+    riverPath.push([rx, y]);
+  }
+  // colinas (túneles)
+  hills = [
+    { x: 330, y: 300, rx: 175, ry: 118, mouths: [] },
+    { x: 1990, y: 1190, rx: 195, ry: 128, mouths: [] }
+  ];
+  // parches de hierba (tonos) fijos
+  terrainBlobs = [];
+  for (let i = 0; i < 42; i++){
+    terrainBlobs.push({ x: rng()*WORLD.w, y: rng()*WORLD.h, r: 90 + rng()*190, tone: rng() });
+  }
+  // nubes
+  clouds = [];
+  for (let i = 0; i < 6; i++){
+    clouds.push({ x: rng()*WORLD.w, y: rng()*WORLD.h*0.9, v: 4 + rng()*7, s: 0.7 + rng()*0.9 });
+  }
+}
+function buildScenery(){
+  const rng = mulberry32(20240612);
+  decor = [];
+  const put = (type, x, y, v, s) => decor.push({ type, x, y, v: v ?? rng(), s: s || 1 });
+  // montañas al fondo (norte)
+  for (let i = 0; i < 7; i++) put("mountain", 130 + i * 330 + rng()*80, 55 + rng()*40, rng(), 0.8 + rng()*0.7);
+  // pueblo
+  put("house", 1500, 400, 0.1, 1.05); put("house", 1600, 445, 0.45, 0.95);
+  put("house", 1435, 470, 0.8, 1); put("house", 1560, 520, 0.3, 0.9);
+  // granja
+  put("barn", 600, 1170, 0.2, 1.1);
+  put("cow", 690, 1220, rng(), 1); put("cow", 745, 1180, rng(), 0.9);
+  put("sheep", 650, 1260, rng(), 1); put("sheep", 705, 1265, rng(), 0.85);
+  put("sheep", 550, 1245, rng(), 1);
+  // molino
+  put("windmill", 1600, 1075, 0.5, 1.1);
+  // lago
+  put("lake", 280, 1010, 0.5, 1);
+  // puente peatonal decorativo sobre el río
+  const fy = 640; let fxr = riverPath[0][0];
+  for (let i = 1; i < riverPath.length; i++) if (Math.abs(riverPath[i][1] - fy) < 60) fxr = riverPath[i][0];
+  put("footbridge", fxr, fy, 0.5, 1);
+  // árboles / pinos / arbustos / flores evitando vía, agua y colinas
+  const okSpot = (x, y, m) => {
+    if (x < 60 || y < 140 || x > WORLD.w - 60 || y > WORLD.h - 60) return false;
+    if (nearWater(x, y, m)) return false;
+    if (pointInAnyHill(x, y, 1.25)) return false;
+    const tp = nearestTrackPoint(x, y, m + 60);
+    if (tp && tp.d < m + 34) return false;
+    for (const d of decor){ if (d.type !== "flower" && d.type !== "bush" && dist2(x, y, d.x, d.y) < 70*70) return false; }
+    return true;
+  };
+  let guard = 0;
+  for (let i = 0; i < 30 && guard < 700; guard++){
+    const x = rng() * WORLD.w, y = 150 + rng() * (WORLD.h - 200);
+    if (okSpot(x, y, 30)){ put(rng() < 0.6 ? "tree" : "pine", x, y, rng(), 0.8 + rng()*0.55); i++; }
+  }
+  for (let i = 0; i < 16 && guard < 1400; guard++){
+    const x = rng() * WORLD.w, y = 150 + rng() * (WORLD.h - 200);
+    if (okSpot(x, y, 12)){ put("bush", x, y, rng(), 0.7 + rng()*0.5); i++; }
+  }
+  for (let i = 0; i < 60 && guard < 2400; guard++){
+    const x = rng() * WORLD.w, y = 140 + rng() * (WORLD.h - 180);
+    if (!nearWater(x, y, 6) && !pointInAnyHill(x, y, 1.05)){ put("flower", x, y, rng(), 1); i++; }
+  }
+  // pinitos sobre las colinas
+  for (const h of hills){
+    for (let i = 0; i < 3; i++) put("pine", h.x + (rng()-0.5)*h.rx*0.8, h.y - h.ry*0.25 + rng()*h.ry*0.7, rng(), 0.55 + rng()*0.3);
+  }
+}
+let terrainBlobs = [];
+/* ============================================================
+   TRENES — locomotora + vagones siguiendo la vía (ruta de registros)
+   Un tren guarda route[] = [{seg, dir}] de atrás hacia delante,
+   headS = distancia del morro sobre la ruta acumulada.
+   ============================================================ */
+function trainLength(t){ return LOCO_LEN + t.wagons.length * (WAGON_LEN + CAR_GAP); }
+function rebuildCum(t){
+  t.cum = [0];
+  for (let i = 0; i < t.route.length; i++){
+    const sg = segs.get(t.route[i].seg);
+    t.cum.push(t.cum[i] + (sg ? sg.len : 0));
+  }
+  t.total = t.cum[t.route.length];
+}
+function makeTrain(colorIdx, segId, dir, headS, wagons){
+  const t = {
+    id: trainId++, color: colorIdx % TRAIN_COLORS.length,
+    wagons: wagons ? wagons.slice(0, MAX_WAGONS) : [],
+    route: [{ seg: segId, dir }], cum: [0], total: 0,
+    headS: headS, slider: 0.5, running: false, speed: 0,
+    stun: 0, wait: 0, warn: 0, crashCool: 0, shake: 0,
+    lastStation: 0, wheelPhase: 0, smokeT: 0, chuffT: 0, steamT: 0,
+    events: []
+  };
+  rebuildCum(t);
+  t.headS = clamp(headS, Math.min(trainLength(t), t.total), t.total);
+  ensureBack(t);
+  trains.push(t);
+  return t;
+}
+function ensureBack(t){
+  const needed = trainLength(t) + 14;
+  let guard = 0;
+  while (t.headS < needed && guard++ < 40){
+    const r0 = t.route[0], sg = segs.get(r0.seg);
+    if (!sg) break;
+    const startNode = r0.dir === 1 ? sg.a : sg.b;
+    // dirección de viaje hacia atrás entrando en el nodo
+    const p = r0.dir === 1 ? lutAt(sg, 0.5) : lutAt(sg, sg.len - 0.5);
+    const fx = r0.dir === 1 ? p.tx : -p.tx, fy = r0.dir === 1 ? p.ty : -p.ty;
+    const nxt = nextTraversal(startNode, -fx, -fy, r0.seg);
+    if (!nxt) break;
+    t.route.unshift({ seg: nxt.seg.id, dir: -nxt.dir });
+    t.headS += nxt.seg.len;
+    rebuildCum(t);
+  }
+}
+function trainPosAt(t, s){
+  s = clamp(s, 0, t.total);
+  let i = t.route.length - 1;
+  while (i > 0 && t.cum[i] > s) i--;
+  const rec = t.route[i], sg = segs.get(rec.seg);
+  if (!sg) return { x: 0, y: 0, ang: 0, segId: 0, sLocal: 0 };
+  const local = s - t.cum[i];
+  if (rec.dir === 1){
+    const p = lutAt(sg, local);
+    return { x: p.x, y: p.y, ang: Math.atan2(p.ty, p.tx), segId: sg.id, sLocal: local };
+  }
+  const p = lutAt(sg, sg.len - local);
+  return { x: p.x, y: p.y, ang: Math.atan2(-p.ty, -p.tx), segId: sg.id, sLocal: sg.len - local };
+}
+function carList(t){
+  const cars = [{ mid: t.headS - LOCO_LEN / 2, len: LOCO_LEN, kind: "loco" }];
+  let off = LOCO_LEN;
+  for (const w of t.wagons){
+    off += CAR_GAP;
+    cars.push({ mid: t.headS - off - WAGON_LEN / 2, len: WAGON_LEN, kind: w });
+    off += WAGON_LEN;
+  }
+  return cars;
+}
+function reverseTrain(t){
+  const L = trainLength(t);
+  t.route.reverse();
+  for (const r of t.route) r.dir = -r.dir;
+  const newHead = t.total - (t.headS - L);
+  rebuildCum(t);
+  t.headS = clamp(newHead, Math.min(L, t.total), t.total);
+  ensureBack(t);
+  t.lastStation = 0;
+}
+/* mirar hacia delante: estaciones, agujas, topes y trenes */
+function walkAhead(t, maxD){
+  const evs = [];
+  let idx = t.route.length - 1;
+  while (idx > 0 && t.cum[idx] > t.headS) idx--;
+  let rec = t.route[idx], sg = segs.get(rec.seg);
+  if (!sg) return evs;
+  let t0 = t.headS - t.cum[idx];  // posición local en la traversal
+  let D0 = 0, guard = 0, fromId = 0;
+  while (guard++ < 30){
+    const len = sg.len, dir = rec.dir;
+    // estaciones del segmento
+    for (const stId of sg.stations){
+      const st = stationsMap.get(stId);
+      if (!st) continue;
+      const tl = dir === 1 ? st.s : len - st.s;
+      if (tl > t0 + 0.5){
+        const d = D0 + tl - t0;
+        if (d <= maxD) evs.push({ type: "station", d, id: st.id });
+      }
+    }
+    // ocupación de otros trenes
+    const spans = spansCache.get(sg.id);
+    if (spans){
+      for (const sp of spans){
+        if (sp.t === t) continue;
+        const lo = dir === 1 ? sp.lo : len - sp.hi;
+        const hi = dir === 1 ? sp.hi : len - sp.lo;
+        if (hi > t0 + 0.5){
+          const d = D0 + Math.max(0, lo - t0);
+          if (d <= maxD) evs.push({ type: "blocked", d, other: sp.t });
+        }
+      }
+    }
+    D0 += len - t0;
+    const endNode = dir === 1 ? sg.b : sg.a;
+    if (switches.has(endNode) && D0 <= maxD) evs.push({ type: "switch", d: D0, node: endNode });
+    if (D0 > maxD) break;
+    const p = dir === 1 ? lutAt(sg, len - 0.5) : lutAt(sg, 0.5);
+    const fx = dir === 1 ? p.tx : -p.tx, fy = dir === 1 ? p.ty : -p.ty;
+    const nxt = nextTraversal(endNode, fx, fy, sg.id);
+    if (!nxt){ evs.push({ type: "buffer", d: D0 }); break; }
+    fromId = sg.id;
+    sg = nxt.seg; rec = { seg: sg.id, dir: nxt.dir }; t0 = 0;
+  }
+  evs.sort((a, b) => a.d - b.d);
+  return evs;
+}
+function updateTrain(t, dt){
+  if (t.stun > 0) t.stun -= dt;
+  if (t.crashCool > 0) t.crashCool -= dt;
+  if (t.shake > 0) t.shake -= dt * 1.6;
+  if (t.warn > 0) t.warn -= dt;
+  if (t.wait > 0){
+    t.wait -= dt;
+    if (t.wait <= 0 && t.running) Snd.whistle(false);
+  }
+  const canRun = t.running && t.stun <= 0 && t.wait <= 0;
+  let target = canRun ? lerp(24, MAX_SPEED, t.slider) : 0;
+  // eventos por delante (frenada estaciones/topes + avisos)
+  t.events = walkAhead(t, 320);
+  if (canRun){
+    for (const ev of t.events){
+      if (ev.type === "station" && ev.id !== t.lastStation){
+        target = Math.min(target, Math.max(9, ev.d * 2.0));
+        if (ev.d < 5){
+          t.wait = 2.6; t.lastStation = ev.id; t.speed = 0; target = 0;
+          Snd.pop();
+          break;
+        }
+      } else if (ev.type === "buffer"){
+        target = Math.min(target, Math.max(0, (ev.d - 4) * 2.0));
+      }
+    }
+  }
+  // liberar la última estación al alejarse
+  if (t.lastStation){
+    const st = stationsMap.get(t.lastStation);
+    if (!st) t.lastStation = 0;
+    else {
+      const hp = trainPosAt(t, t.headS);
+      if (dist2(hp.x, hp.y, st.x, st.y) > 78 * 78) t.lastStation = 0;
+    }
+  }
+  // aceleración / freno
+  if (target > t.speed) t.speed = Math.min(target, t.speed + 60 * dt);
+  else t.speed = Math.max(target, t.speed - 150 * dt);
+  // avanzar
+  if (t.speed > 0){
+    t.headS += t.speed * dt;
+    t.odo = (t.odo || 0) + t.speed * dt;
+    let guard = 0;
+    while (t.headS > t.total && guard++ < 12){
+      const rec = t.route[t.route.length - 1], sg = segs.get(rec.seg);
+      if (!sg){ t.headS = t.total; break; }
+      const endNode = rec.dir === 1 ? sg.b : sg.a;
+      const p = rec.dir === 1 ? lutAt(sg, sg.len - 0.5) : lutAt(sg, 0.5);
+      const fx = rec.dir === 1 ? p.tx : -p.tx, fy = rec.dir === 1 ? p.ty : -p.ty;
+      const nxt = nextTraversal(endNode, fx, fy, sg.id);
+      if (!nxt){
+        t.headS = t.total;
+        if (t.speed > 26) Snd.bump();
+        t.speed = 0;
+        break;
+      }
+      t.route.push({ seg: nxt.seg.id, dir: nxt.dir });
+      rebuildCum(t);
+    }
+    // recortar ruta sobrante
+    const L = trainLength(t);
+    while (t.route.length > 1 && t.headS - L > t.cum[1] + 8){
+      const first = segs.get(t.route[0].seg);
+      t.route.shift();
+      t.headS -= first ? first.len : 0;
+      rebuildCum(t);
+    }
+    while (t.route.length > 1 && t.headS < t.cum[t.route.length - 1] - 8){
+      t.route.pop();
+      rebuildCum(t);
+    }
+    ensureBack(t);
+    t.wheelPhase += t.speed * dt / 7;
+    // humo y chuff
+    t.smokeT -= dt; t.chuffT -= dt;
+    if (t.smokeT <= 0){
+      const hp = trainPosAt(t, t.headS - 9);
+      spawnSmoke(hp.x, hp.y);
+      t.smokeT = 0.55 - (t.speed / MAX_SPEED) * 0.38;
+    }
+    if (t.chuffT <= 0 && t.speed > 20){
+      Snd.chuff(0.05 + (t.speed / MAX_SPEED) * 0.05);
+      t.chuffT = 0.6 - (t.speed / MAX_SPEED) * 0.4;
+    }
+  }
+  // aviso de colisión (lookahead)
+  if (t.speed > 12){
+    const warnD = 100 + t.speed * 1.25;
+    for (const ev of t.events){
+      if (ev.type === "blocked" && ev.d < warnD){
+        t.warn = 0.7; ev.other.warn = Math.max(ev.other.warn, 0.7);
+        if (gameTime - lastBellAt > 1.7){ Snd.bell(); lastBellAt = gameTime; }
+        break;
+      }
+    }
+  }
+}
+function buildSpans(){
+  spansCache.clear();
+  for (const t of trains){
+    const L = trainLength(t), tail = t.headS - L;
+    for (let i = 0; i < t.route.length; i++){
+      const rec = t.route[i], sg = segs.get(rec.seg);
+      if (!sg) continue;
+      const lo = t.cum[i], hi = lo + sg.len;
+      const o0 = Math.max(lo, tail), o1 = Math.min(hi, t.headS);
+      if (o1 <= o0) continue;
+      const u0 = o0 - lo, u1 = o1 - lo;
+      const sLo = rec.dir === 1 ? u0 : sg.len - u1;
+      const sHi = rec.dir === 1 ? u1 : sg.len - u0;
+      let arr = spansCache.get(sg.id);
+      if (!arr){ arr = []; spansCache.set(sg.id, arr); }
+      arr.push({ t, lo: sLo, hi: sHi });
+    }
+  }
+}
+function spanFree(segId, lo, hi, except){
+  const arr = spansCache.get(segId);
+  if (!arr) return true;
+  for (const sp of arr){
+    if (sp.t === except) continue;
+    if (sp.hi > lo - 10 && sp.lo < hi + 10) return false;
+  }
+  return true;
+}
+function checkCollisions(){
+  for (const [segId, arr] of spansCache){
+    if (arr.length < 2) continue;
+    for (let i = 0; i < arr.length; i++){
+      for (let j = i + 1; j < arr.length; j++){
+        const A = arr[i], B = arr[j];
+        if (A.t === B.t) continue;
+        if (A.hi > B.lo - 3 && A.lo < B.hi + 3){
+          const a = A.t, b = B.t;
+          if (a.crashCool > 0 || b.crashCool > 0) continue;
+          if (Math.abs(a.speed) + Math.abs(b.speed) < 8) continue;
+          const sg = segs.get(segId);
+          const mid = lutAt(sg, (Math.max(A.lo, B.lo) + Math.min(A.hi, B.hi)) / 2);
+          doCrash(a, b, mid.x, mid.y);
+        }
+      }
+    }
+  }
+}
+function shiftBack(t, d){
+  const L = Math.min(trainLength(t), t.total);
+  t.headS = clamp(t.headS - d, L, t.total);
+  ensureBack(t);
+}
+function doCrash(a, b, x, y){
+  medalTime = 0;
+  for (const t of [a, b]){
+    t.stun = 3; t.speed = 0; t.running = false; t.warn = 0;
+    t.crashCool = 3.5; t.shake = 1; t.wait = 0;
+  }
+  shiftBack(a, 7); shiftBack(b, 7);
+  spawnCrashStars(x, y);
+  Snd.boing();
+  screenShake = 0.45;
+  updateTrainPanel();
+}
+/* colocar tren nuevo en hueco libre cercano al centro de cámara */
+function placeNewTrain(colorIdx){
+  if (trains.length >= MAX_TRAINS){ Snd.deny(); toastMsg("🚂", "¡Máximo 5 trenes!"); return null; }
+  buildSpans();
+  const need = LOCO_LEN + 30;
+  let best = null, bestD = 1e18;
+  for (const sg of segs.values()){
+    if (sg.len < need) continue;
+    // huecos libres del segmento
+    const arr = (spansCache.get(sg.id) || []).slice().sort((p, q) => p.lo - q.lo);
+    let cursor = 0;
+    const gaps = [];
+    for (const sp of arr){ if (sp.lo - cursor > need) gaps.push([cursor, sp.lo]); cursor = Math.max(cursor, sp.hi); }
+    if (sg.len - cursor > need) gaps.push([cursor, sg.len]);
+    for (const g of gaps){
+      const mid = (g[0] + g[1]) / 2;
+      const p = lutAt(sg, mid);
+      const d = dist2(p.x, p.y, cam.x, cam.y) + (sg.stations.length ? -400000 : 0);
+      if (d < bestD){ bestD = d; best = { seg: sg, s: mid }; }
+    }
+  }
+  if (!best){ Snd.deny(); toastMsg("🛤️", "No hay sitio libre en la vía"); return null; }
+  const t = makeTrain(colorIdx, best.seg.id, 1, best.s + LOCO_LEN / 2, []);
+  t.headS = clamp(best.s + LOCO_LEN / 2, Math.min(trainLength(t), t.total), t.total);
+  const hp = trainPosAt(t, t.headS - LOCO_LEN / 2);
+  for (let i = 0; i < 10; i++) spawnSteam(hp.x + rand(-14, 14), hp.y + rand(-8, 8));
+  Snd.pop(); Snd.whistle(false);
+  selectTrain(t);
+  achieve("primer_tren");
+  return t;
+}
+function removeTrain(t){
+  const i = trains.indexOf(t);
+  if (i >= 0) trains.splice(i, 1);
+  if (selectedTrain === t) selectTrain(null);
+  if (cam.follow === t.id) cam.follow = 0;
+  if (viewMode === "cab" && cabTrain === t) exitCab();
+}
+function relocateTrain(t, x, y){
+  const tp = nearestTrackPoint(x, y, 70);
+  if (!tp) return false;
+  const sg = tp.seg;
+  const hp = trainPosAt(t, t.headS);
+  const tg = lutAt(sg, tp.s);
+  const dir = (Math.cos(hp.ang) * tg.tx + Math.sin(hp.ang) * tg.ty) >= 0 ? 1 : -1;
+  const L = trainLength(t);
+  if (sg.len < LOCO_LEN + 10) return false;
+  const travLocal = dir === 1 ? tp.s : sg.len - tp.s;
+  const head = clamp(travLocal + LOCO_LEN / 2, Math.min(L, sg.len), sg.len);
+  // comprobar hueco en coordenadas locales del segmento
+  const lo = dir === 1 ? head - L : sg.len - head;
+  const hi = dir === 1 ? head : sg.len - (head - L);
+  if (!spanFree(sg.id, Math.max(0, lo), Math.min(sg.len, hi), t)) return false;
+  t.route = [{ seg: sg.id, dir }];
+  t.headS = head;
+  rebuildCum(t); ensureBack(t);
+  t.lastStation = 0; t.speed = 0;
+  return true;
+}
+let screenShake = 0;
+let cabTrain = null;
+/* ============================================================
+   RENDER 2.5D — proyección con aplastado vertical + alturas
+   ============================================================ */
+let shakeX = 0, shakeY = 0;
+function proj(x, y){ return [(x - cam.x - shakeX) * cam.z + W / 2, (y - cam.y - shakeY) * cam.z * SQ + H / 2]; }
+function unproj(sx, sy){ return [(sx - W / 2) / cam.z + cam.x, (sy - H / 2) / (cam.z * SQ) + cam.y]; }
+function worldTransform(){
+  const cx = cam.x + shakeX, cy = cam.y + shakeY;
+  ctx.setTransform(DPR * cam.z, 0, 0, DPR * cam.z * SQ, DPR * (W / 2 - cx * cam.z), DPR * (H / 2 - cy * cam.z * SQ));
+}
+function screenTransform(){ ctx.setTransform(DPR, 0, 0, DPR, 0, 0); }
+function viewRect(){
+  const [x0, y0] = unproj(0, 0), [x1, y1] = unproj(W, H);
+  return { x0: x0 - 90, y0: y0 - 160, x1: x1 + 90, y1: y1 + 90 };
+}
+/* ---------------- caché de sprites ---------------- */
+const spriteCache = new Map();
+const SPR_SCALE = 3;
+function getSprite(key, wu, hu, ax, ay, paint){
+  let s = spriteCache.get(key);
+  if (s) return s;
+  const cv = document.createElement("canvas");
+  cv.width = Math.ceil(wu * SPR_SCALE); cv.height = Math.ceil(hu * SPR_SCALE);
+  const c = cv.getContext("2d");
+  c.scale(SPR_SCALE, SPR_SCALE);
+  paint(c);
+  s = { cv, wu, hu, ax, ay };
+  spriteCache.set(key, s);
+  return s;
+}
+function drawSprite(s, wx, wy, scale){
+  const [sx, sy] = proj(wx, wy);
+  const w = s.wu * cam.z * scale, h = s.hu * cam.z * scale;
+  ctx.drawImage(s.cv, sx - s.ax * cam.z * scale, sy - s.ay * cam.z * scale, w, h);
+}
+function shadow(c, x, y, rx, ry, a){
+  c.fillStyle = `rgba(30,60,25,${a})`;
+  c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, TAU); c.fill();
+}
+function sprTree(v){
+  const hue = 100 + Math.floor(v * 40);
+  return getSprite("tree" + Math.floor(v * 6), 60, 74, 30, 66, c => {
+    shadow(c, 30, 66, 20, 7, 0.25);
+    c.fillStyle = "#7c5330"; c.fillRect(27.5, 42, 5, 24);
+    const g = c.createRadialGradient(24, 26, 4, 30, 32, 26);
+    g.addColorStop(0, `hsl(${hue},62%,58%)`); g.addColorStop(1, `hsl(${hue},55%,38%)`);
+    c.fillStyle = g;
+    c.beginPath(); c.arc(30, 30, 21, 0, TAU); c.arc(17, 40, 13, 0, TAU); c.arc(43, 40, 13, 0, TAU); c.fill();
+    c.fillStyle = "rgba(255,255,255,.16)";
+    c.beginPath(); c.arc(23, 23, 8, 0, TAU); c.fill();
+  });
+}
+function sprPine(v){
+  return getSprite("pine" + Math.floor(v * 5), 50, 78, 25, 71, c => {
+    shadow(c, 25, 71, 16, 6, 0.25);
+    c.fillStyle = "#6e4a2a"; c.fillRect(22.5, 56, 5, 15);
+    const g1 = 118 + v * 20;
+    for (let i = 0; i < 3; i++){
+      const w = 40 - i * 10, y = 58 - i * 16;
+      c.fillStyle = `hsl(${g1},45%,${30 + i * 6}%)`;
+      c.beginPath(); c.moveTo(25 - w / 2, y); c.lineTo(25 + w / 2, y); c.lineTo(25, y - 22); c.closePath(); c.fill();
+    }
+    c.fillStyle = "rgba(255,255,255,.85)";
+    c.beginPath(); c.moveTo(25, 14); c.lineTo(20, 24); c.lineTo(30, 24); c.closePath(); c.fill();
+  });
+}
+function sprBush(v){
+  return getSprite("bush" + Math.floor(v * 4), 40, 28, 20, 24, c => {
+    shadow(c, 20, 24, 15, 5, 0.2);
+    c.fillStyle = `hsl(${105 + v * 30},50%,${40 + v * 8}%)`;
+    c.beginPath(); c.arc(13, 16, 9, 0, TAU); c.arc(27, 16, 9, 0, TAU); c.arc(20, 11, 9, 0, TAU); c.fill();
+    if (v > 0.5){ c.fillStyle = "#e6537a"; for (let i = 0; i < 3; i++){ c.beginPath(); c.arc(12 + i * 8, 12 + (i % 2) * 5, 1.6, 0, TAU); c.fill(); } }
+  });
+}
+function sprHouse(v){
+  const roofs = ["#d9534f", "#e08b1d", "#5a9bd6", "#8e5bd6"];
+  const walls = ["#fff3dd", "#ffe9c9", "#f6f6f0", "#ffe1e1"];
+  const i = Math.floor(v * roofs.length) % roofs.length;
+  return getSprite("house" + i, 76, 72, 38, 66, c => {
+    shadow(c, 38, 66, 28, 8, 0.25);
+    c.fillStyle = walls[i]; c.fillRect(14, 34, 48, 32);
+    c.strokeStyle = "rgba(120,80,40,.4)"; c.lineWidth = 1.5; c.strokeRect(14, 34, 48, 32);
+    c.fillStyle = roofs[i];
+    c.beginPath(); c.moveTo(8, 36); c.lineTo(38, 10); c.lineTo(68, 36); c.closePath(); c.fill();
+    c.fillStyle = "#7a4a20"; c.fillRect(33, 48, 11, 18);
+    c.fillStyle = "#bfe3ff"; c.fillRect(20, 42, 9, 9); c.fillRect(48, 42, 9, 9);
+    c.strokeStyle = "#7a5a30"; c.lineWidth = 1; c.strokeRect(20, 42, 9, 9); c.strokeRect(48, 42, 9, 9);
+    c.fillStyle = "#9c6b3c"; c.fillRect(52, 16, 6, 14);
+  });
+}
+function sprBarn(){
+  return getSprite("barn", 100, 84, 50, 78, c => {
+    shadow(c, 50, 78, 38, 9, 0.25);
+    c.fillStyle = "#c8483f"; c.fillRect(14, 38, 72, 40);
+    c.fillStyle = "#a83a32";
+    c.beginPath(); c.moveTo(8, 40); c.lineTo(50, 10); c.lineTo(92, 40); c.closePath(); c.fill();
+    c.fillStyle = "#fff"; c.fillRect(14, 38, 72, 4);
+    c.fillStyle = "#7a4a20"; c.fillRect(40, 52, 20, 26);
+    c.strokeStyle = "#fff"; c.lineWidth = 2.5;
+    c.beginPath(); c.moveTo(41, 53); c.lineTo(59, 77); c.moveTo(59, 53); c.lineTo(41, 77); c.stroke();
+  });
+}
+function sprCow(v){
+  return getSprite("cow" + Math.floor(v * 3), 42, 30, 21, 26, c => {
+    shadow(c, 21, 26, 15, 4.5, 0.2);
+    c.fillStyle = "#fff";
+    c.beginPath(); c.ellipse(21, 16, 13, 8.5, 0, 0, TAU); c.fill();
+    c.fillStyle = "#333";
+    c.beginPath(); c.ellipse(15 + v * 8, 14, 4.5, 3.5, 0.4, 0, TAU); c.fill();
+    c.beginPath(); c.ellipse(27, 19, 3.5, 2.6, -0.4, 0, TAU); c.fill();
+    c.fillStyle = "#fff"; c.beginPath(); c.arc(33, 12, 5.5, 0, TAU); c.fill();
+    c.fillStyle = "#f4b8c4"; c.beginPath(); c.ellipse(35.5, 13.5, 2.6, 1.8, 0, 0, TAU); c.fill();
+    c.fillStyle = "#333";
+    c.beginPath(); c.arc(32, 10, 0.9, 0, TAU); c.fill();
+    c.fillRect(13, 23, 3, 4); c.fillRect(26, 23, 3, 4);
+  });
+}
+function sprSheep(v){
+  return getSprite("sheep" + Math.floor(v * 3), 32, 24, 16, 21, c => {
+    shadow(c, 16, 21, 11, 3.5, 0.2);
+    c.fillStyle = "#f4f1e8";
+    c.beginPath(); c.arc(11, 12, 6, 0, TAU); c.arc(18, 10, 6.5, 0, TAU); c.arc(23, 13, 5, 0, TAU); c.arc(15, 15, 6, 0, TAU); c.fill();
+    c.fillStyle = "#4a4038";
+    c.beginPath(); c.arc(26, 10, 3.4, 0, TAU); c.fill();
+    c.fillStyle = "#fff"; c.beginPath(); c.arc(27, 9, 0.8, 0, TAU); c.fill();
+    c.fillStyle = "#4a4038"; c.fillRect(11, 18, 2.4, 4); c.fillRect(19, 18, 2.4, 4);
+  });
+}
+function sprMountain(v){
+  return getSprite("mtn" + Math.floor(v * 4), 260, 150, 130, 146, c => {
+    const g = c.createLinearGradient(0, 20, 0, 146);
+    g.addColorStop(0, "#8ea7c4"); g.addColorStop(1, "#5f7c9e");
+    c.fillStyle = g;
+    c.beginPath(); c.moveTo(4, 146); c.lineTo(90 + v * 40, 16); c.lineTo(256, 146); c.closePath(); c.fill();
+    c.fillStyle = "#f6fbff";
+    const px = 90 + v * 40;
+    c.beginPath(); c.moveTo(px - 26, 52); c.lineTo(px, 16); c.lineTo(px + 26, 52);
+    c.lineTo(px + 14, 46); c.lineTo(px + 4, 56); c.lineTo(px - 8, 46); c.closePath(); c.fill();
+    c.fillStyle = "rgba(40,60,90,.18)";
+    c.beginPath(); c.moveTo(px, 16); c.lineTo(256, 146); c.lineTo(px + 30, 146); c.closePath(); c.fill();
+  });
+}
+function sprWindmillBody(){
+  return getSprite("windmill", 70, 96, 35, 90, c => {
+    shadow(c, 35, 90, 24, 7, 0.25);
+    const g = c.createLinearGradient(20, 0, 50, 0);
+    g.addColorStop(0, "#f3e0c0"); g.addColorStop(1, "#d8b98c");
+    c.fillStyle = g;
+    c.beginPath(); c.moveTo(22, 90); c.lineTo(28, 30); c.lineTo(42, 30); c.lineTo(48, 90); c.closePath(); c.fill();
+    c.fillStyle = "#b25e42";
+    c.beginPath(); c.arc(35, 26, 10, Math.PI, 0); c.lineTo(45, 30); c.lineTo(25, 30); c.closePath(); c.fill();
+    c.fillStyle = "#7a4a20"; c.fillRect(31, 70, 8, 20);
+    c.fillStyle = "#bfe3ff"; c.beginPath(); c.arc(35, 48, 4, 0, TAU); c.fill();
+    c.strokeStyle = "#7a5a30"; c.lineWidth = 1; c.stroke();
+  });
+}
+function sprFootbridge(){
+  return getSprite("footbridge", 120, 46, 60, 36, c => {
+    c.strokeStyle = "#8a5a2e"; c.lineWidth = 6; c.lineCap = "round";
+    c.beginPath(); c.moveTo(6, 34); c.quadraticCurveTo(60, 2, 114, 34); c.stroke();
+    c.strokeStyle = "#a9743f"; c.lineWidth = 3;
+    c.beginPath(); c.moveTo(6, 26); c.quadraticCurveTo(60, -6, 114, 26); c.stroke();
+    for (let i = 0; i <= 6; i++){
+      const t = i / 6, x = lerp(10, 110, t);
+      const y1 = 34 - Math.sin(t * Math.PI) * 26, y0 = 26 - Math.sin(t * Math.PI) * 26;
+      c.strokeStyle = "#8a5a2e"; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(x, y0); c.lineTo(x, y1); c.stroke();
+    }
+  });
+}
+function sprStationHouse(){
+  return getSprite("stationHouse", 88, 66, 44, 60, c => {
+    shadow(c, 44, 60, 34, 8, 0.25);
+    c.fillStyle = "#fdeecd"; c.fillRect(12, 30, 64, 30);
+    c.strokeStyle = "rgba(120,80,40,.4)"; c.lineWidth = 1.5; c.strokeRect(12, 30, 64, 30);
+    c.fillStyle = "#c8483f";
+    c.beginPath(); c.moveTo(6, 32); c.lineTo(44, 10); c.lineTo(82, 32); c.closePath(); c.fill();
+    c.fillStyle = "#7a4a20"; c.fillRect(38, 40, 12, 20);
+    c.fillStyle = "#bfe3ff"; c.fillRect(18, 38, 10, 10); c.fillRect(60, 38, 10, 10);
+    c.fillStyle = "#fff"; c.fillRect(30, 22, 28, 8);
+    c.fillStyle = "#20516e"; c.font = "700 6.5px sans-serif"; c.textAlign = "center";
+    c.fillText("ESTACIÓN", 44, 28);
+  });
+}
+/* ---------------- terreno ---------------- */
+function drawTerrain(vr){
+  // hierba base con gradiente
+  const g = ctx.createLinearGradient(0, 0, 0, WORLD.h);
+  g.addColorStop(0, "#8ed07f"); g.addColorStop(1, "#6fbc60");
+  ctx.fillStyle = g;
+  ctx.fillRect(vr.x0, vr.y0, vr.x1 - vr.x0, vr.y1 - vr.y0);
+  // parches
+  for (const b of terrainBlobs){
+    if (b.x + b.r < vr.x0 || b.x - b.r > vr.x1 || b.y + b.r < vr.y0 || b.y - b.r > vr.y1) continue;
+    ctx.fillStyle = b.tone < 0.5 ? "rgba(255,255,220,0.10)" : "rgba(40,120,50,0.10)";
+    ctx.beginPath(); ctx.ellipse(b.x, b.y, b.r, b.r * 0.7, 0, 0, TAU); ctx.fill();
+  }
+  // caminos de tierra fijos
+  ctx.strokeStyle = "#cbb489"; ctx.lineCap = "round"; ctx.lineWidth = 16;
+  ctx.beginPath(); ctx.moveTo(1530, 470); ctx.quadraticCurveTo(1350, 700, 1090, 940);
+  ctx.quadraticCurveTo(880, 1090, 660, 1170); ctx.stroke();
+  ctx.strokeStyle = "rgba(140,110,60,.35)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(1530, 470); ctx.quadraticCurveTo(1350, 700, 1090, 940);
+  ctx.quadraticCurveTo(880, 1090, 660, 1170); ctx.stroke();
+  // lago
+  for (const d of decor){
+    if (d.type !== "lake") continue;
+    ctx.fillStyle = "#7ec3e8";
+    ctx.beginPath(); ctx.ellipse(d.x, d.y, 120, 78, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = "#a9dbF5";
+    ctx.beginPath(); ctx.ellipse(d.x - 14, d.y - 10, 92, 56, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = "#8ecdec";
+    ctx.beginPath(); ctx.ellipse(d.x - 14, d.y - 10, 78, 46, 0, 0, TAU); ctx.fill();
+    // destellos
+    ctx.fillStyle = "rgba(255,255,255,.75)";
+    for (let i = 0; i < 4; i++){
+      const a = gameTime * 0.7 + i * 1.7;
+      const sx = d.x - 20 + Math.cos(a) * 40, sy = d.y - 8 + Math.sin(a * 1.3) * 22;
+      ctx.fillRect(sx, sy, 7 + Math.sin(a * 2) * 2, 1.6);
+    }
+    ctx.fillStyle = "#5aa9e6";
+    ctx.beginPath(); ctx.ellipse(d.x + 40, d.y + 26, 10, 5, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = "#7cc86f";
+    ctx.beginPath(); ctx.ellipse(d.x + 40, d.y + 26, 5, 2.4, 0, 0, TAU); ctx.fill();
+  }
+  // río
+  if (riverPath.length > 1){
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    const path = new Path2D();
+    path.moveTo(riverPath[0][0], riverPath[0][1]);
+    for (let i = 1; i < riverPath.length; i++){
+      const a = riverPath[i - 1], b = riverPath[i];
+      path.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+    }
+    ctx.strokeStyle = "#5f9e53"; ctx.lineWidth = RIVER_W + 14; ctx.stroke(path);   // orilla
+    ctx.strokeStyle = "#d9c9a0"; ctx.lineWidth = RIVER_W + 6; ctx.stroke(path);    // arena
+    ctx.strokeStyle = "#63b7e6"; ctx.lineWidth = RIVER_W; ctx.stroke(path);        // agua
+    ctx.strokeStyle = "#8fd0f0"; ctx.lineWidth = RIVER_W * 0.55; ctx.stroke(path); // agua clara
+    // destellos que fluyen
+    ctx.fillStyle = "rgba(255,255,255,.8)";
+    const flow = (gameTime * 40) % 90;
+    for (let i = 1; i < riverPath.length; i++){
+      const a = riverPath[i - 1], b = riverPath[i];
+      for (let k = flow; k < 110; k += 90){
+        const t = k / 110;
+        const x = lerp(a[0], b[0], t) + Math.sin(i * 3 + gameTime) * 8;
+        const y = lerp(a[1], b[1], t);
+        if (x < vr.x0 || x > vr.x1 || y < vr.y0 || y > vr.y1) continue;
+        ctx.fillRect(x - 4, y, 8, 2);
+      }
+    }
+  }
+  // flores (solo con zoom cercano)
+  if (cam.z > 0.55){
+    for (const d of decor){
+      if (d.type !== "flower") continue;
+      if (d.x < vr.x0 || d.x > vr.x1 || d.y < vr.y0 || d.y > vr.y1) continue;
+      const cols = ["#ff7d9c", "#ffd166", "#f0f0ff", "#ff9a5c"];
+      ctx.fillStyle = cols[Math.floor(d.v * cols.length) % cols.length];
+      ctx.beginPath(); ctx.arc(d.x, d.y, 3.4, 0, TAU); ctx.fill();
+      ctx.fillStyle = "#fff8d0";
+      ctx.beginPath(); ctx.arc(d.x, d.y, 1.4, 0, TAU); ctx.fill();
+    }
+  }
+}
+/* ---------------- vías ---------------- */
+function buildSegPaths(seg){
+  const bal = new Path2D(), ties = new Path2D(), rL = new Path2D(), rR = new Path2D();
+  const n = seg.px.length;
+  bal.moveTo(seg.px[0], seg.py[0]);
+  for (let i = 1; i < n; i++) bal.lineTo(seg.px[i], seg.py[i]);
+  // raíles desplazados por la normal
+  const off = RAIL_GAP / 2;
+  let first = true;
+  for (let i = 0; i < n; i++){
+    const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
+    let tx = seg.px[i1] - seg.px[i0], ty = seg.py[i1] - seg.py[i0];
+    const m = Math.hypot(tx, ty) || 1; tx /= m; ty /= m;
+    const nx = -ty, ny = tx;
+    if (first){ rL.moveTo(seg.px[i] + nx * off, seg.py[i] + ny * off); rR.moveTo(seg.px[i] - nx * off, seg.py[i] - ny * off); first = false; }
+    else { rL.lineTo(seg.px[i] + nx * off, seg.py[i] + ny * off); rR.lineTo(seg.px[i] - nx * off, seg.py[i] - ny * off); }
+  }
+  // traviesas
+  for (let s = 5; s < seg.len - 3; s += 9.5){
+    const p = lutAt(seg, s);
+    const nx = -p.ty, ny = p.tx, e = off + 3.5;
+    ties.moveTo(p.x + nx * e, p.y + ny * e);
+    ties.lineTo(p.x - nx * e, p.y - ny * e);
+  }
+  seg.paths = { bal, ties, rL, rR };
+}
+function segInView(seg, vr){
+  const na = nodes.get(seg.a), nb = nodes.get(seg.b);
+  const x0 = Math.min(na.x, nb.x) - 200, x1 = Math.max(na.x, nb.x) + 200;
+  const y0 = Math.min(na.y, nb.y) - 200, y1 = Math.max(na.y, nb.y) + 200;
+  return x1 > vr.x0 && x0 < vr.x1 && y1 > vr.y0 && y0 < vr.y1;
+}
+function drawTrack(vr){
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  // puentes primero (tablero bajo la vía)
+  for (const seg of segs.values()){
+    if (!seg.bridges.length || !segInView(seg, vr)) continue;
+    for (const [b0, b1] of seg.bridges){
+      const deck = new Path2D();
+      let firstp = true;
+      for (let s = b0; s <= b1; s += 7){
+        const p = lutAt(seg, s);
+        if (firstp){ deck.moveTo(p.x, p.y); firstp = false; } else deck.lineTo(p.x, p.y);
+      }
+      // postes
+      ctx.strokeStyle = "#6e4a2a"; ctx.lineWidth = 5;
+      for (let s = b0 + 8; s < b1 - 4; s += 26){
+        const p = lutAt(seg, s);
+        const nx = -p.ty, ny = p.tx;
+        ctx.beginPath();
+        ctx.moveTo(p.x + nx * 12, p.y + ny * 12); ctx.lineTo(p.x + nx * 12, p.y + ny * 12 + 16);
+        ctx.moveTo(p.x - nx * 12, p.y - ny * 12); ctx.lineTo(p.x - nx * 12, p.y - ny * 12 + 16);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = "#8a5a2e"; ctx.lineWidth = 30; ctx.stroke(deck);
+      ctx.strokeStyle = "#a9743f"; ctx.lineWidth = 24; ctx.stroke(deck);
+      // barandillas
+      ctx.strokeStyle = "#c98c4b"; ctx.lineWidth = 2.5;
+      for (const sgn of [1, -1]){
+        ctx.beginPath();
+        let f2 = true;
+        for (let s = b0; s <= b1; s += 7){
+          const p = lutAt(seg, s);
+          const x = p.x - p.ty * 13 * sgn, y = p.y + p.tx * 13 * sgn - 6;
+          if (f2){ ctx.moveTo(x, y); f2 = false; } else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }
+  }
+  // balasto + traviesas + raíles
+  for (const seg of segs.values()){
+    if (!segInView(seg, vr)) continue;
+    if (!seg.paths) buildSegPaths(seg);
+    ctx.strokeStyle = "#c3b190"; ctx.lineWidth = 21; ctx.stroke(seg.paths.bal);
+    ctx.strokeStyle = "rgba(140,120,90,.5)"; ctx.lineWidth = 23; ctx.setLineDash([2, 7]); ctx.stroke(seg.paths.bal); ctx.setLineDash([]);
+    ctx.strokeStyle = "#8a6238"; ctx.lineWidth = 3.4; ctx.stroke(seg.paths.ties);
+    ctx.strokeStyle = "#6b6b70"; ctx.lineWidth = 2.6;
+    ctx.stroke(seg.paths.rL); ctx.stroke(seg.paths.rR);
+    ctx.strokeStyle = "#c9ccd4"; ctx.lineWidth = 1;
+    ctx.stroke(seg.paths.rL); ctx.stroke(seg.paths.rR);
+  }
+  // topes en extremos abiertos
+  for (const n of nodes.values()){
+    if (n.segs.length !== 1) continue;
+    const seg = segs.get(n.segs[0]);
+    if (!seg || !segInView(seg, vr)) continue;
+    const [ox, oy] = outwardTangent(seg, n.id);
+    const bx = n.x - ox * 4, by = n.y - oy * 4;
+    const nx = -oy, ny = ox;
+    ctx.strokeStyle = "#8a5a2e"; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(bx + nx * 10, by + ny * 10); ctx.lineTo(bx - nx * 10, by - ny * 10); ctx.stroke();
+    ctx.strokeStyle = "#d9534f"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(bx + nx * 8, by + ny * 8); ctx.lineTo(bx - nx * 8, by - ny * 8); ctx.stroke();
+  }
+  // andenes de estación
+  for (const st of stationsMap.values()){
+    const nx = -st.ty, ny = st.tx;
+    ctx.save();
+    ctx.translate(st.x + nx * 21, st.y + ny * 21);
+    ctx.rotate(Math.atan2(st.ty, st.tx));
+    ctx.fillStyle = "#d9c9a0";
+    rrectPath(ctx, -46, -10, 92, 20, 6);
+    ctx.fill();
+    ctx.strokeStyle = "#b8a26f"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = "rgba(180,150,90,.5)";
+    for (let i = -3; i <= 3; i++) ctx.fillRect(i * 12 - 1, -10, 2, 20);
+    ctx.restore();
+  }
+}
+/* ---------------- agujas ---------------- */
+function drawSwitches(vr){
+  for (const [nodeIdSw, sw] of switches){
+    const n = nodes.get(nodeIdSw);
+    if (!n || n.x < vr.x0 || n.x > vr.x1 || n.y < vr.y0 || n.y > vr.y1) continue;
+    if (sw.anim > 0) sw.anim = Math.max(0, sw.anim - 0.08);
+    // atenuar ramas no activas
+    for (const opt of sw.options){
+      if (opt === sw.active) continue;
+      const sg = segs.get(opt);
+      if (!sg) continue;
+      ctx.strokeStyle = "rgba(60,60,60,.30)";
+      ctx.lineWidth = 15; ctx.lineCap = "round";
+      ctx.beginPath();
+      const from = sg.a === nodeIdSw;
+      let started = false;
+      for (let s = 2; s < Math.min(30, sg.len - 2); s += 6){
+        const p = lutAt(sg, from ? s : sg.len - s);
+        if (!started){ ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+    }
+    // rama activa iluminada
+    const act = segs.get(sw.active);
+    if (act){
+      ctx.strokeStyle = "rgba(120,220,90,.5)";
+      ctx.lineWidth = 13; ctx.lineCap = "round";
+      ctx.beginPath();
+      const from = act.a === nodeIdSw;
+      let started = false;
+      for (let s = 2; s < Math.min(34, act.len - 2); s += 6){
+        const p = lutAt(act, from ? s : act.len - s);
+        if (!started){ ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+      // flecha grande (apunta hacia dentro de la rama activa para distinguirla)
+      const pin = lutAt(act, from ? Math.min(28, act.len * 0.5) : act.len - Math.min(28, act.len * 0.5));
+      let dxA = pin.x - n.x, dyA = pin.y - n.y;
+      const mA = Math.hypot(dxA, dyA) || 1; dxA /= mA; dyA /= mA;
+      const ax = n.x + dxA * 30, ay = n.y + dyA * 30;
+      const popA = 1 + (sw.anim || 0) * 0.5;
+      ctx.fillStyle = "#ffde3d"; ctx.strokeStyle = "#b8860b"; ctx.lineWidth = 2.5;
+      ctx.save();
+      ctx.translate(ax, ay); ctx.rotate(Math.atan2(dyA, dxA)); ctx.scale(popA, popA);
+      ctx.beginPath();
+      ctx.moveTo(10, 0); ctx.lineTo(-7, -9); ctx.lineTo(-3, 0); ctx.lineTo(-7, 9); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
+    // palanca circular
+    const pop = 1 + (sw.anim || 0) * 0.6;
+    ctx.fillStyle = "#fff";
+    ctx.beginPath(); ctx.arc(n.x, n.y, 11 * pop, 0, TAU); ctx.fill();
+    ctx.fillStyle = "#e0393e";
+    ctx.beginPath(); ctx.arc(n.x, n.y, 7.5 * pop, 0, TAU); ctx.fill();
+    ctx.strokeStyle = "#8c1f22"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(n.x, n.y, 7.5 * pop, 0, TAU); ctx.stroke();
+  }
+}
+/* ---------------- helpers de dibujo ---------------- */
+function rrectPath(c, x, y, w, h, r){
+  r = Math.min(r, w / 2, h / 2);
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+/* ---------------- entidades ordenadas por profundidad ---------------- */
+function collectEntities(vr){
+  const ents = [];
+  for (const d of decor){
+    if (d.type === "lake" || d.type === "flower") continue;
+    if (d.x < vr.x0 - 150 || d.x > vr.x1 + 150 || d.y < vr.y0 - 150 || d.y > vr.y1 + 150) continue;
+    ents.push({ y: d.y, kind: "decor", d });
+  }
+  for (const h of hills){
+    if (h.x + h.rx < vr.x0 || h.x - h.rx > vr.x1 || h.y + h.ry < vr.y0 || h.y - h.ry > vr.y1) continue;
+    ents.push({ y: h.y + h.ry * 0.4, kind: "hill", h });
+  }
+  for (const st of stationsMap.values()){
+    const bx = st.x - st.ty * 52, by = st.y + st.tx * 52;
+    if (bx < vr.x0 || bx > vr.x1 || by < vr.y0 || by > vr.y1) continue;
+    ents.push({ y: by, kind: "stationHouse", x: bx, yy: by, st });
+  }
+  for (const t of trains){
+    const cars = carList(t);
+    for (let ci = 0; ci < cars.length; ci++){
+      const car = cars[ci];
+      const p = trainPosAt(t, car.mid);
+      if (pointInAnyHill(p.x, p.y, 0.86)) continue;
+      if (p.x < vr.x0 || p.x > vr.x1 || p.y < vr.y0 || p.y > vr.y1) continue;
+      ents.push({ y: p.y, kind: "car", t, car, p, ci });
+    }
+  }
+  ents.sort((a, b) => a.y - b.y);
+  return ents;
+}
+function drawEntity(e){
+  if (e.kind === "decor"){
+    const d = e.d;
+    let s = null;
+    switch (d.type){
+      case "tree": s = sprTree(d.v); break;
+      case "pine": s = sprPine(d.v); break;
+      case "bush": s = sprBush(d.v); break;
+      case "house": s = sprHouse(d.v); break;
+      case "barn": s = sprBarn(); break;
+      case "cow": s = sprCow(d.v); break;
+      case "sheep": s = sprSheep(d.v); break;
+      case "mountain": s = sprMountain(d.v); break;
+      case "footbridge": s = sprFootbridge(); break;
+      case "windmill": drawWindmill(d); return;
+    }
+    if (s) drawSprite(s, d.x, d.y, d.s);
+    // humo de chimenea de las casas
+    if (d.type === "house" && quality > 0 && d.v > 0.4){
+      if ((gameTime + d.v * 5) % 1.1 < 0.02) spawnSmoke(d.x + 14 * d.s, d.y - 50 * d.s, 0.55);
+    }
+  } else if (e.kind === "hill"){
+    drawHill(e.h);
+  } else if (e.kind === "stationHouse"){
+    drawSprite(sprStationHouse(), e.x, e.yy, 1);
+    drawStationFlags(e.st);
+  } else if (e.kind === "car"){
+    drawCar(e.t, e.car, e.p, e.ci);
+  }
+}
+function drawWindmill(d){
+  drawSprite(sprWindmillBody(), d.x, d.y, d.s);
+  const [sx, sy] = proj(d.x, d.y - 64 * d.s);
+  const r = 30 * d.s * cam.z, a0 = gameTime * 0.9;
+  ctx.strokeStyle = "#7a4a20"; ctx.lineWidth = Math.max(1.5, 2.6 * cam.z);
+  ctx.fillStyle = "rgba(246,238,215,.95)";
+  for (let i = 0; i < 4; i++){
+    const a = a0 + i * Math.PI / 2;
+    const ex = sx + Math.cos(a) * r, ey = sy + Math.sin(a) * r * 0.9;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+    const px = -Math.sin(a) * r * 0.16, py = Math.cos(a) * r * 0.14;
+    ctx.beginPath();
+    ctx.moveTo(sx + Math.cos(a) * r * 0.3, sy + Math.sin(a) * r * 0.27);
+    ctx.lineTo(ex + px, ey + py);
+    ctx.lineTo(ex - px * 0.2, ey - py * 0.2);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  ctx.fillStyle = "#5a3a1a";
+  ctx.beginPath(); ctx.arc(sx, sy, Math.max(2, 4 * d.s * cam.z), 0, TAU); ctx.fill();
+}
+function drawHill(h){
+  const [sx, sy] = proj(h.x, h.y);
+  const rx = h.rx * cam.z, ry = h.ry * cam.z * SQ * 1.55;
+  const g = ctx.createRadialGradient(sx - rx * 0.25, sy - ry * 0.55, rx * 0.1, sx, sy, rx);
+  g.addColorStop(0, "#a4d98a"); g.addColorStop(0.7, "#7cba62"); g.addColorStop(1, "#639b4e");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.ellipse(sx, sy - ry * 0.34, rx, ry, 0, 0, TAU); ctx.fill();
+  ctx.strokeStyle = "rgba(70,110,55,.5)"; ctx.lineWidth = Math.max(1, 2 * cam.z);
+  ctx.beginPath(); ctx.ellipse(sx, sy - ry * 0.34, rx, ry, 0, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+  // bocas de túnel
+  for (const m of h.mouths){
+    const [mx, my] = proj(m.x, m.y);
+    const ang = Math.atan2(m.ty * SQ, m.tx);
+    const rw = 17 * cam.z, rh = 21 * cam.z;
+    ctx.save();
+    ctx.translate(mx, my - 6 * cam.z);
+    // portal de piedra
+    ctx.fillStyle = "#9c9484";
+    ctx.beginPath(); ctx.ellipse(0, 0, rw * 1.25, rh * 1.05, 0, Math.PI, 0, false); ctx.lineTo(rw * 1.25, 4 * cam.z); ctx.lineTo(-rw * 1.25, 4 * cam.z); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#2c2620";
+    ctx.beginPath(); ctx.ellipse(0, 0, rw * 0.85, rh * 0.8, 0, Math.PI, 0, false); ctx.lineTo(rw * 0.85, 4 * cam.z); ctx.lineTo(-rw * 0.85, 4 * cam.z); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "#6e665a"; ctx.lineWidth = Math.max(1, 2.4 * cam.z);
+    ctx.beginPath(); ctx.ellipse(0, 0, rw * 1.05, rh * 0.92, 0, Math.PI * 1.02, -0.02 * Math.PI, false); ctx.stroke();
+    ctx.restore();
+  }
+}
+function drawStationFlags(st){
+  const [sx, sy] = proj(st.x - st.ty * 52, st.y + st.tx * 52);
+  for (const k of [-1, 1]){
+    const fx = sx + k * 40 * cam.z, fy = sy - 4 * cam.z;
+    ctx.strokeStyle = "#7a5a30"; ctx.lineWidth = Math.max(1, 2 * cam.z);
+    ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(fx, fy - 26 * cam.z); ctx.stroke();
+    const wav = Math.sin(gameTime * 3 + k) * 3 * cam.z;
+    ctx.fillStyle = k > 0 ? "#e0393e" : "#2f7fe0";
+    ctx.beginPath();
+    ctx.moveTo(fx, fy - 26 * cam.z);
+    ctx.quadraticCurveTo(fx + 8 * cam.z * k, fy - 24 * cam.z + wav, fx + 15 * cam.z * k, fy - 22 * cam.z + wav);
+    ctx.lineTo(fx, fy - 17 * cam.z);
+    ctx.closePath(); ctx.fill();
+  }
+}
+/* ---------------- dibujo de vagones y locomotora ---------------- */
+function carTransform(p){
+  const [sx, sy] = proj(p.x, p.y);
+  const cA = Math.cos(p.ang), sA = Math.sin(p.ang);
+  const z = cam.z;
+  ctx.setTransform(DPR * z * cA, DPR * z * sA * SQ, DPR * z * -sA, DPR * z * cA * SQ, DPR * sx, DPR * sy);
+}
+function drawCar(t, car, p, ci){
+  const col = TRAIN_COLORS[t.color];
+  // sombra (espacio mundo aplastado)
+  worldTransform();
+  ctx.save();
+  ctx.translate(p.x, p.y); ctx.rotate(p.ang);
+  ctx.fillStyle = "rgba(30,60,25,.28)";
+  ctx.beginPath(); ctx.ellipse(0, 3, car.len / 2 + 2, 10, 0, 0, TAU); ctx.fill();
+  ctx.restore();
+  // cuerpo en marco local del coche
+  carTransform(p);
+  if (t.shake > 0){
+    const sh = Math.sin(gameTime * 55 + ci) * 2.2 * Math.max(0, t.shake);
+    ctx.translate(0, sh);
+  }
+  const L = car.len, hw = 8;
+  // ruedas
+  ctx.fillStyle = "#2e2e34";
+  if (car.kind === "loco"){
+    for (const wx of [-15, -4, 7]){
+      ctx.beginPath(); ctx.arc(wx, 6.5, 3.6, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(wx, -6.5, 3.6, 0, TAU); ctx.fill();
+    }
+    // bielas animadas
+    const ph = t.wheelPhase, ox = Math.cos(ph) * 2, oy = Math.sin(ph) * 1.4;
+    ctx.strokeStyle = "#b8bcc4"; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(-15 + ox, 6.5 + oy); ctx.lineTo(7 + ox, 6.5 + oy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-15 + ox, -6.5 - oy); ctx.lineTo(7 + ox, -6.5 - oy); ctx.stroke();
+  } else {
+    for (const wx of [-L / 2 + 6, L / 2 - 6]){
+      ctx.beginPath(); ctx.arc(wx, 6, 3, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(wx, -6, 3, 0, TAU); ctx.fill();
+    }
+  }
+  if (car.kind === "loco"){
+    // chasis
+    ctx.fillStyle = "#3a3a40";
+    rrectPath(ctx, -L / 2, -hw, L, hw * 2, 4); ctx.fill();
+    // caldera
+    const bg = ctx.createLinearGradient(0, -hw, 0, hw);
+    bg.addColorStop(0, col.c); bg.addColorStop(0.5, col.c); bg.addColorStop(1, col.d);
+    ctx.fillStyle = bg;
+    rrectPath(ctx, -4, -7, L / 2 + 2, 14, 6.5); ctx.fill();
+    ctx.strokeStyle = col.d; ctx.lineWidth = 1.2;
+    rrectPath(ctx, -4, -7, L / 2 + 2, 14, 6.5); ctx.stroke();
+    // cabina
+    ctx.fillStyle = col.d;
+    rrectPath(ctx, -L / 2 + 2, -8.5, 16, 17, 3); ctx.fill();
+    ctx.fillStyle = "#cfe8ff";
+    ctx.fillRect(-L / 2 + 5, -6, 4.5, 12);
+    // techo cabina
+    ctx.fillStyle = "#2f2f36";
+    rrectPath(ctx, -L / 2 + 1, -9.5, 18, 3.4, 2); ctx.fill();
+    rrectPath(ctx, -L / 2 + 1, 6.1, 18, 3.4, 2); ctx.fill();
+    // chimenea + domo
+    ctx.fillStyle = "#2f2f36";
+    ctx.beginPath(); ctx.arc(L / 2 - 8, 0, 3.6, 0, TAU); ctx.fill();
+    ctx.fillStyle = "#ffd94d";
+    ctx.beginPath(); ctx.arc(L / 2 - 8, 0, 1.7, 0, TAU); ctx.fill();
+    ctx.fillStyle = col.d;
+    ctx.beginPath(); ctx.arc(2, 0, 3.2, 0, TAU); ctx.fill();
+    // tope frontal
+    ctx.fillStyle = "#c8483f";
+    ctx.beginPath();
+    ctx.moveTo(L / 2 + 1, -6); ctx.lineTo(L / 2 + 5, 0); ctx.lineTo(L / 2 + 1, 6); ctx.closePath(); ctx.fill();
+    // faro encendido si circula
+    if (t.speed > 4){
+      ctx.fillStyle = "rgba(255,240,160,.85)";
+      ctx.beginPath(); ctx.arc(L / 2 + 1, 0, 2.4, 0, TAU); ctx.fill();
+      ctx.fillStyle = "rgba(255,240,160,.22)";
+      ctx.beginPath(); ctx.moveTo(L / 2 + 2, 0); ctx.lineTo(L / 2 + 26, -8); ctx.lineTo(L / 2 + 26, 8); ctx.closePath(); ctx.fill();
+    }
+  } else if (car.kind === "pasajeros"){
+    const bg = ctx.createLinearGradient(0, -hw, 0, hw);
+    bg.addColorStop(0, col.c); bg.addColorStop(1, col.d);
+    ctx.fillStyle = bg;
+    rrectPath(ctx, -L / 2, -7.5, L, 15, 5); ctx.fill();
+    ctx.strokeStyle = col.d; ctx.lineWidth = 1.2;
+    rrectPath(ctx, -L / 2, -7.5, L, 15, 5); ctx.stroke();
+    ctx.fillStyle = "#f6f2e8";
+    rrectPath(ctx, -L / 2 + 2, -2.6, L - 4, 5.2, 2.5); ctx.fill();
+    ctx.fillStyle = "#9ecdf2";
+    for (let i = 0; i < 4; i++){
+      ctx.fillRect(-L / 2 + 4 + i * (L - 8) / 4 + 1.5, -1.8, (L - 8) / 4 - 4, 3.6);
+    }
+  } else if (car.kind === "mercancias"){
+    ctx.fillStyle = "#9c6b3c";
+    rrectPath(ctx, -L / 2, -7.5, L, 15, 3); ctx.fill();
+    ctx.strokeStyle = "#7a4d24"; ctx.lineWidth = 1.2;
+    rrectPath(ctx, -L / 2, -7.5, L, 15, 3); ctx.stroke();
+    ctx.strokeStyle = "rgba(122,77,36,.8)"; ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++){
+      const x = -L / 2 + i * L / 4;
+      ctx.beginPath(); ctx.moveTo(x, -7.5); ctx.lineTo(x, 7.5); ctx.stroke();
+    }
+    ctx.fillStyle = col.c;
+    ctx.fillRect(-4, -4, 8, 8);
+  } else if (car.kind === "cisterna"){
+    ctx.fillStyle = "#5c6672";
+    rrectPath(ctx, -L / 2, -4.5, L, 9, 2); ctx.fill();
+    const bg = ctx.createLinearGradient(0, -7, 0, 7);
+    bg.addColorStop(0, "#c9d2dd"); bg.addColorStop(0.5, "#9aa7b5"); bg.addColorStop(1, "#77828f");
+    ctx.fillStyle = bg;
+    rrectPath(ctx, -L / 2 + 2, -7, L - 4, 14, 7); ctx.fill();
+    ctx.strokeStyle = "#5c6672"; ctx.lineWidth = 1.2;
+    rrectPath(ctx, -L / 2 + 2, -7, L - 4, 14, 7); ctx.stroke();
+    ctx.fillStyle = col.c;
+    ctx.beginPath(); ctx.arc(0, 0, 3.2, 0, TAU); ctx.fill();
+  } else if (car.kind === "madera"){
+    ctx.fillStyle = "#6e5136";
+    rrectPath(ctx, -L / 2, -7, L, 14, 2.5); ctx.fill();
+    const logCols = ["#a9743f", "#8a5a2e", "#9c6b3c"];
+    for (let i = 0; i < 3; i++){
+      ctx.fillStyle = logCols[i];
+      rrectPath(ctx, -L / 2 + 3, -6 + i * 4.2, L - 6, 3.6, 1.8); ctx.fill();
+      ctx.fillStyle = "#e8c890";
+      ctx.beginPath(); ctx.arc(L / 2 - 4, -4.2 + i * 4.2, 1.7, 0, TAU); ctx.fill();
+    }
+  }
+  screenTransform();
+}
+/* ---------------- partículas ---------------- */
+function spawnSmoke(x, y, sc){
+  if (particles.length > 90 * (quality + 1) / 3 + 40) return;
+  particles.push({ type: "smoke", x, y, vx: rand(2, 9), vy: rand(-22, -14), life: 0, max: rand(1.6, 2.4), size: rand(4, 7) * (sc || 1), rot: rand(0, TAU) });
+}
+function spawnSteam(x, y){
+  particles.push({ type: "steam", x, y, vx: rand(-14, 14), vy: rand(-26, -8), life: 0, max: rand(0.5, 1), size: rand(3, 6) });
+}
+function spawnCrashStars(x, y){
+  for (let i = 0; i < 12; i++){
+    const a = rand(0, TAU), sp = rand(30, 110);
+    particles.push({ type: "star", x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30, life: 0, max: rand(0.7, 1.2), size: rand(4, 8), rot: rand(0, TAU), vr: rand(-6, 6) });
+  }
+  particles.push({ type: "puff", x, y, vx: 0, vy: -6, life: 0, max: 0.7, size: 20 });
+}
+function spawnNotes(x, y){
+  for (let i = 0; i < 3; i++){
+    particles.push({ type: "note", x: x + rand(-8, 8), y: y + rand(-6, 0), vx: rand(-8, 8), vy: rand(-36, -22), life: -i * 0.15, max: 1.1, size: 13 });
+  }
+}
+function spawnConfetti(){
+  const n = quality > 0 ? 70 : 30;
+  for (let i = 0; i < n; i++){
+    screenParticles.push({
+      x: rand(0, W), y: rand(-40, -5), vx: rand(-25, 25), vy: rand(50, 140),
+      life: 0, max: rand(2, 3.4), size: rand(4, 8),
+      color: pick(["#e0393e", "#2f7fe0", "#37b24d", "#f2b705", "#8e5bd6", "#ff8ac2"]),
+      rot: rand(0, TAU), vr: rand(-8, 8), sway: rand(2, 6)
+    });
+  }
+}
+function updateParticles(dt){
+  for (let i = particles.length - 1; i >= 0; i--){
+    const p = particles[i];
+    p.life += dt;
+    if (p.life > p.max){ particles.splice(i, 1); continue; }
+    if (p.life < 0) continue;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.type === "smoke" || p.type === "steam"){ p.vx += 6 * dt; p.vy *= (1 - 0.6 * dt); }
+    if (p.type === "star"){ p.vy += 60 * dt; p.rot += p.vr * dt; }
+  }
+  for (let i = screenParticles.length - 1; i >= 0; i--){
+    const p = screenParticles[i];
+    p.life += dt;
+    if (p.life > p.max){ screenParticles.splice(i, 1); continue; }
+    p.x += (p.vx + Math.sin(p.life * p.sway) * 30) * dt;
+    p.y += p.vy * dt;
+    p.rot += p.vr * dt;
+  }
+}
+function drawParticles(){
+  screenTransform();
+  for (const p of particles){
+    if (p.life < 0) continue;
+    const [sx, sy] = proj(p.x, p.y);
+    if (sx < -40 || sx > W + 40 || sy < -40 || sy > H + 40) continue;
+    const k = p.life / p.max;
+    if (p.type === "smoke"){
+      ctx.fillStyle = `rgba(235,235,240,${0.5 * (1 - k)})`;
+      ctx.beginPath(); ctx.arc(sx, sy, (p.size + k * 14) * cam.z, 0, TAU); ctx.fill();
+    } else if (p.type === "steam"){
+      ctx.fillStyle = `rgba(255,255,255,${0.7 * (1 - k)})`;
+      ctx.beginPath(); ctx.arc(sx, sy, (p.size + k * 8) * cam.z, 0, TAU); ctx.fill();
+    } else if (p.type === "star"){
+      ctx.save();
+      ctx.translate(sx, sy); ctx.rotate(p.rot);
+      ctx.fillStyle = `rgba(255,215,60,${1 - k})`;
+      const r = p.size * cam.z;
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++){
+        const a = i * TAU / 5 - Math.PI / 2;
+        ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        const a2 = a + TAU / 10;
+        ctx.lineTo(Math.cos(a2) * r * 0.45, Math.sin(a2) * r * 0.45);
+      }
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    } else if (p.type === "puff"){
+      ctx.fillStyle = `rgba(255,255,255,${0.55 * (1 - k)})`;
+      ctx.beginPath(); ctx.arc(sx, sy, (p.size + k * 40) * cam.z, 0, TAU); ctx.fill();
+    } else if (p.type === "note"){
+      ctx.font = `${Math.max(10, p.size * cam.z)}px sans-serif`;
+      ctx.globalAlpha = 1 - k;
+      ctx.fillText("🎵", sx, sy);
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+function drawScreenParticles(){
+  fxCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  fxCtx.clearRect(0, 0, W, H);
+  for (const p of screenParticles){
+    fxCtx.save();
+    fxCtx.translate(p.x, p.y); fxCtx.rotate(p.rot);
+    fxCtx.fillStyle = p.color;
+    fxCtx.globalAlpha = clamp(1 - p.life / p.max * 0.7, 0, 1);
+    fxCtx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+    fxCtx.restore();
+  }
+}
+/* ---------------- overlays de tren (selección, avisos) ---------------- */
+function drawTrainOverlays(){
+  screenTransform();
+  for (const t of trains){
+    const hp = trainPosAt(t, t.headS - LOCO_LEN / 2);
+    const [sx, sy] = proj(hp.x, hp.y);
+    // anillo de selección
+    if (t === selectedTrain && viewMode === "aerial"){
+      const pulse = 1 + Math.sin(gameTime * 5) * 0.08;
+      ctx.strokeStyle = "rgba(255,255,255,.9)";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([8, 6]);
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, 40 * cam.z * pulse, 26 * cam.z * pulse, 0, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // aviso de colisión
+    if (t.warn > 0){
+      const bob = Math.sin(gameTime * 9) * 5;
+      ctx.font = `${Math.max(20, 30 * cam.z)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText("⚠️", sx, sy - 44 * cam.z + bob);
+      ctx.textAlign = "left";
+    }
+    // aturdido: estrellas girando
+    if (t.stun > 0){
+      ctx.font = `${Math.max(13, 17 * cam.z)}px sans-serif`;
+      ctx.textAlign = "center";
+      for (let i = 0; i < 3; i++){
+        const a = gameTime * 4 + i * TAU / 3;
+        ctx.fillText("⭐", sx + Math.cos(a) * 26 * cam.z, sy - 30 * cam.z + Math.sin(a) * 9 * cam.z);
+      }
+      ctx.textAlign = "left";
+    }
+    // esperando en estación
+    if (t.wait > 0){
+      ctx.font = `${Math.max(14, 20 * cam.z)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText("⏳", sx, sy - 40 * cam.z);
+      ctx.textAlign = "left";
+    }
+  }
+}
+/* ---------------- nubes y pájaros ---------------- */
+function updateAmbient(dt){
+  for (const c of clouds){
+    c.x += c.v * dt;
+    if (c.x > WORLD.w + 300) c.x = -300;
+  }
+  if (quality > 0){
+    birdTimer -= dt;
+    if (birdTimer <= 0 && birds.length < 3){
+      birds.push({ x: -60, y: rand(160, 700), vx: rand(55, 90), vy: rand(-6, 6), ph: rand(0, TAU) });
+      birdTimer = rand(9, 18);
+    }
+  }
+  for (let i = birds.length - 1; i >= 0; i--){
+    const b = birds[i];
+    b.x += b.vx * dt; b.y += b.vy * dt; b.ph += dt * 9;
+    if (b.x > WORLD.w + 80) birds.splice(i, 1);
+  }
+}
+let birdTimer = 5;
+function drawClouds(){
+  screenTransform();
+  for (const c of clouds){
+    const [sx, sy] = proj(c.x, c.y);
+    if (sx < -200 || sx > W + 200 || sy < -150 || sy > H + 150) continue;
+    const s = c.s * cam.z;
+    ctx.fillStyle = "rgba(255,255,255,.85)";
+    ctx.beginPath();
+    ctx.ellipse(sx, sy, 58 * s, 20 * s, 0, 0, TAU);
+    ctx.ellipse(sx - 30 * s, sy + 5 * s, 34 * s, 15 * s, 0, 0, TAU);
+    ctx.ellipse(sx + 32 * s, sy + 4 * s, 38 * s, 16 * s, 0, 0, TAU);
+    ctx.fill();
+  }
+  for (const b of birds){
+    const [sx, sy] = proj(b.x, b.y);
+    const f = Math.sin(b.ph) * 4 * cam.z;
+    ctx.strokeStyle = "#3a3a40"; ctx.lineWidth = Math.max(1, 1.8 * cam.z);
+    ctx.beginPath();
+    ctx.moveTo(sx - 7 * cam.z, sy - f);
+    ctx.quadraticCurveTo(sx - 2 * cam.z, sy + 3 * cam.z, sx, sy);
+    ctx.quadraticCurveTo(sx + 2 * cam.z, sy + 3 * cam.z, sx + 7 * cam.z, sy - f);
+    ctx.stroke();
+  }
+}
+/* ---------------- frame aéreo completo ---------------- */
+function renderAerial(){
+  screenTransform();
+  ctx.clearRect(0, 0, W, H);
+  // fondo fuera del mundo: agua/cielo suave
+  ctx.fillStyle = "#6fbc60";
+  ctx.fillRect(0, 0, W, H);
+  if (screenShake > 0){
+    screenShake = Math.max(0, screenShake - 0.016);
+    const s = screenShake * 12 / cam.z;
+    shakeX = rand(-s, s); shakeY = rand(-s, s);
+  } else { shakeX = 0; shakeY = 0; }
+  worldTransform();
+  const vr = viewRect();
+  drawTerrain(vr);
+  drawTrack(vr);
+  drawSwitches(vr);
+  if (buildMode) drawBuildOverlay(vr);
+  const ents = collectEntities(vr);
+  screenTransform();
+  for (const e of ents) drawEntity(e);
+  drawParticles();
+  drawTrainOverlays();
+  drawClouds();
+  // sol fijo con brillo
+  screenTransform();
+  const sunX = W - 90, sunY = 78;
+  const sg = ctx.createRadialGradient(sunX, sunY, 4, sunX, sunY, 55);
+  sg.addColorStop(0, "rgba(255,240,150,.9)");
+  sg.addColorStop(0.4, "rgba(255,220,90,.45)");
+  sg.addColorStop(1, "rgba(255,220,90,0)");
+  ctx.fillStyle = sg;
+  ctx.beginPath(); ctx.arc(sunX, sunY, 55, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#ffe27a";
+  ctx.beginPath(); ctx.arc(sunX, sunY, 20, 0, TAU); ctx.fill();
+}
+/* ============================================================
+   VISTA MAQUINISTA — pseudo-3D estilo "corridor" con parallax
+   ============================================================ */
+let cabIntro = 1, cabSwitchHits = [], cabPuffs = [];
+function enterCab(t){
+  cabTrain = t;
+  viewMode = "cab";
+  cabIntro = 0;
+  ui.cabUI.classList.add("show");
+  ui.trainPanel.classList.remove("show");
+  ui.bottomBar.style.display = "none";
+  ui.topLeft.style.display = "none";
+  ui.cabSpeedRange.value = Math.round(t.slider * 100);
+  syncCabStopBtn();
+  if (buildMode) setBuildMode(false);
+  achieve("maquinista");
+  Snd.pop();
+}
+function exitCab(){
+  if (cabTrain){ cam.x = clamp(trainPosAt(cabTrain, cabTrain.headS).x, 0, WORLD.w); cam.y = clamp(trainPosAt(cabTrain, cabTrain.headS).y, 0, WORLD.h); }
+  viewMode = "aerial";
+  cabTrain = null;
+  ui.cabUI.classList.remove("show");
+  ui.bottomBar.style.display = "";
+  ui.topLeft.style.display = "";
+  updateTrainPanel();
+  Snd.pop();
+}
+function syncCabStopBtn(){
+  if (!cabTrain) return;
+  ui.btnCabStop.textContent = cabTrain.running ? "⏸️" : "▶️";
+}
+function cabPathSamples(t, maxD, step){
+  const pts = [], sws = [];
+  let idx = t.route.length - 1;
+  while (idx > 0 && t.cum[idx] > t.headS) idx--;
+  let rec = { seg: t.route[idx].seg, dir: t.route[idx].dir };
+  let sg = segs.get(rec.seg);
+  if (!sg) return { pts, sws };
+  let local = t.headS - t.cum[idx];
+  let D = 0, guard = 0;
+  while (D <= maxD && guard++ < 400){
+    if (local > sg.len){
+      const over = local - sg.len;
+      const endNode = rec.dir === 1 ? sg.b : sg.a;
+      const pE = rec.dir === 1 ? lutAt(sg, sg.len - 0.5) : lutAt(sg, 0.5);
+      const fx = rec.dir === 1 ? pE.tx : -pE.tx, fy = rec.dir === 1 ? pE.ty : -pE.ty;
+      if (switches.has(endNode)){
+        const n = nodes.get(endNode);
+        sws.push({ node: endNode, x: n.x, y: n.y, d: D - over });
+      }
+      const nxt = nextTraversal(endNode, fx, fy, sg.id);
+      if (!nxt) break;
+      sg = nxt.seg; rec = { seg: sg.id, dir: nxt.dir }; local = over;
+      continue;
+    }
+    const sl = rec.dir === 1 ? local : sg.len - local;
+    const p = lutAt(sg, sl);
+    pts.push({ x: p.x, y: p.y, d: D });
+    local += step; D += step;
+  }
+  return { pts, sws };
+}
+function renderCab(dt){
+  const t = cabTrain;
+  if (!t){ exitCab(); return; }
+  screenTransform();
+  ctx.clearRect(0, 0, W, H);
+  const hp = trainPosAt(t, t.headS);
+  const h0 = hp.ang;
+  const horizonY = H * 0.42, bottomY = H * 0.96;
+  const D0 = 55, KX = W * 0.048;
+  const persp = f => D0 / (D0 + f);
+  const yAt = f => horizonY + (bottomY - horizonY) * persp(f);
+  const xAt = (l, f) => W / 2 + l * KX * persp(f);
+  // ----- cielo -----
+  const sky = ctx.createLinearGradient(0, 0, 0, horizonY);
+  sky.addColorStop(0, "#69b7f0"); sky.addColorStop(1, "#cdeaff");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, horizonY);
+  // sol
+  const sunX = ((-h0 / TAU) * W * 2.5 % (W * 2.5) + W * 2.5) % (W * 2.5) - W * 0.5;
+  ctx.fillStyle = "rgba(255,235,140,.95)";
+  ctx.beginPath(); ctx.arc(sunX, horizonY * 0.35, 26, 0, TAU); ctx.fill();
+  ctx.fillStyle = "rgba(255,235,140,.25)";
+  ctx.beginPath(); ctx.arc(sunX, horizonY * 0.35, 48, 0, TAU); ctx.fill();
+  // nubes parallax
+  for (let i = 0; i < clouds.length; i++){
+    const c = clouds[i];
+    const cx0 = ((c.x * 0.6 - h0 * 420 + i * 300) % (W + 360) + W + 360) % (W + 360) - 180;
+    const cy = 30 + (i * 53) % (horizonY * 0.55);
+    ctx.fillStyle = "rgba(255,255,255,.85)";
+    ctx.beginPath();
+    ctx.ellipse(cx0, cy, 46 * c.s, 15 * c.s, 0, 0, TAU);
+    ctx.ellipse(cx0 - 26 * c.s, cy + 5 * c.s, 26 * c.s, 11 * c.s, 0, 0, TAU);
+    ctx.ellipse(cx0 + 27 * c.s, cy + 4 * c.s, 29 * c.s, 12 * c.s, 0, 0, TAU);
+    ctx.fill();
+  }
+  // montañas parallax
+  const mOff = ((-h0 * 260) % 520 + 520) % 520;
+  ctx.fillStyle = "#8ea7c4";
+  for (let i = -1; i < Math.ceil(W / 260) + 1; i++){
+    const bx = i * 260 + mOff - 260;
+    ctx.beginPath();
+    ctx.moveTo(bx - 130, horizonY);
+    ctx.lineTo(bx, horizonY - 58 - (i * 37 % 30));
+    ctx.lineTo(bx + 130, horizonY);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#f6fbff";
+    ctx.beginPath();
+    ctx.moveTo(bx - 16, horizonY - 44 - (i * 37 % 30) * 0.7);
+    ctx.lineTo(bx, horizonY - 58 - (i * 37 % 30));
+    ctx.lineTo(bx + 16, horizonY - 44 - (i * 37 % 30) * 0.7);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#8ea7c4";
+  }
+  // ----- suelo -----
+  const gg = ctx.createLinearGradient(0, horizonY, 0, bottomY);
+  gg.addColorStop(0, "#9ed48d"); gg.addColorStop(1, "#5ea94f");
+  ctx.fillStyle = gg;
+  ctx.fillRect(0, horizonY, W, H - horizonY);
+  // bandas de hierba que pasan
+  ctx.fillStyle = "rgba(255,255,230,.08)";
+  const odo = t.odo || 0;
+  for (let k = 0; k < 14; k++){
+    const f = k * 46 - (odo % 46);
+    if (f < 0) continue;
+    const y1 = yAt(f), y2 = yAt(f + 20);
+    ctx.fillRect(0, y2, W, Math.max(1, y1 - y2));
+  }
+  // ----- vía -----
+  const { pts, sws } = cabPathSamples(t, 640, 7);
+  const rel = [];
+  let lastF = -1;
+  const cosH = Math.cos(h0), sinH = Math.sin(h0);
+  for (const p of pts){
+    const dx = p.x - hp.x, dy = p.y - hp.y;
+    const f = dx * cosH + dy * sinH;
+    const l = -dx * sinH + dy * cosH;
+    if (f < lastF - 0.5) break;
+    if (f >= 0){ rel.push({ f, l }); lastF = f; }
+  }
+  if (rel.length > 1){
+    // balasto
+    ctx.fillStyle = "#c3b190";
+    ctx.beginPath();
+    for (let i = 0; i < rel.length; i++){
+      const r = rel[i];
+      const x = xAt(r.l - 11, r.f), y = yAt(r.f);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    for (let i = rel.length - 1; i >= 0; i--){
+      const r = rel[i];
+      ctx.lineTo(xAt(r.l + 11, r.f), yAt(r.f));
+    }
+    ctx.closePath(); ctx.fill();
+    // traviesas (fijas al mundo: se mueven con el tren)
+    ctx.fillStyle = "#8a6238";
+    for (let k = 0; k < 70; k++){
+      const f = k * 9 - (odo % 9);
+      if (f < 0 || f > rel[rel.length - 1].f) continue;
+      // lateral interpolado
+      let l = 0;
+      for (let i = 1; i < rel.length; i++){
+        if (rel[i].f >= f){
+          const r0 = rel[i - 1], r1 = rel[i];
+          l = lerp(r0.l, r1.l, (f - r0.f) / Math.max(0.01, r1.f - r0.f));
+          break;
+        }
+      }
+      const y0 = yAt(f), y1 = yAt(f + 2.4);
+      const xw0 = xAt(l - 9, f), xw1 = xAt(l + 9, f);
+      ctx.fillRect(xw0, y1, xw1 - xw0, Math.max(1, y0 - y1));
+    }
+    // raíles
+    for (const side of [-6.5, 6.5]){
+      ctx.strokeStyle = "#6b6b70";
+      ctx.lineWidth = Math.max(2, 9 * persp(0));
+      ctx.beginPath();
+      for (let i = 0; i < rel.length; i++){
+        const r = rel[i];
+        const x = xAt(r.l + side, r.f), y = yAt(r.f);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        ctx.lineWidth = Math.max(1, 8 * persp(r.f));
+      }
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(230,235,245,.8)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i < rel.length; i++){
+        const r = rel[i];
+        const x = xAt(r.l + side, r.f), y = yAt(r.f);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+  }
+  // ----- decorado lateral (billboards, lejos → cerca) -----
+  const bills = [];
+  for (const d of decor){
+    if (d.type === "flower" || d.type === "lake" || d.type === "mountain" || d.type === "footbridge") continue;
+    const dx = d.x - hp.x, dy = d.y - hp.y;
+    const f = dx * cosH + dy * sinH;
+    if (f < 6 || f > 560) continue;
+    const l = -dx * sinH + dy * cosH;
+    if (Math.abs(l) > 300) continue;
+    bills.push({ f, l, d });
+  }
+  // otros trenes como billboards
+  for (const ot of trains){
+    if (ot === t) continue;
+    const cars = carList(ot);
+    for (const car of cars){
+      const p = trainPosAt(ot, car.mid);
+      const dx = p.x - hp.x, dy = p.y - hp.y;
+      const f = dx * cosH + dy * sinH;
+      if (f < 4 || f > 560) continue;
+      const l = -dx * sinH + dy * cosH;
+      if (Math.abs(l) > 90) continue;
+      bills.push({ f, l, train: ot, car });
+    }
+  }
+  bills.sort((a, b) => b.f - a.f);
+  for (const b of bills){
+    const sc = persp(b.f), x = xAt(b.l, b.f), y = yAt(b.f);
+    if (b.train){
+      const col = TRAIN_COLORS[b.train.color];
+      const w = 30 * KX * sc * 0.055, h = 26 * KX * sc * 0.055;
+      ctx.fillStyle = "rgba(30,60,25,.3)";
+      ctx.beginPath(); ctx.ellipse(x, y, w * 0.7, h * 0.16, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = b.car.kind === "loco" ? col.c : (b.car.kind === "mercancias" ? "#9c6b3c" : b.car.kind === "cisterna" ? "#9aa7b5" : b.car.kind === "madera" ? "#8a5a2e" : col.c);
+      rrectPath(ctx, x - w / 2, y - h, w, h, w * 0.2); ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,.35)"; ctx.lineWidth = Math.max(1, 2 * sc);
+      rrectPath(ctx, x - w / 2, y - h, w, h, w * 0.2); ctx.stroke();
+      if (b.car.kind === "loco"){
+        ctx.fillStyle = "#2f2f36";
+        ctx.fillRect(x - w * 0.16, y - h * 1.28, w * 0.32, h * 0.32);
+      }
+      continue;
+    }
+    const d = b.d;
+    let s = null;
+    switch (d.type){
+      case "tree": s = sprTree(d.v); break;
+      case "pine": s = sprPine(d.v); break;
+      case "bush": s = sprBush(d.v); break;
+      case "house": s = sprHouse(d.v); break;
+      case "barn": s = sprBarn(); break;
+      case "cow": s = sprCow(d.v); break;
+      case "sheep": s = sprSheep(d.v); break;
+      case "windmill": s = sprWindmillBody(); break;
+    }
+    if (!s) continue;
+    const wpx = s.wu * KX * 0.05 * sc * 3.4 * d.s;
+    const hpx = wpx * s.hu / s.wu;
+    ctx.drawImage(s.cv, x - wpx * (s.ax / s.wu), y - hpx * (s.ay / s.hu), wpx, hpx);
+  }
+  // dentro de un túnel: oscurecer
+  if (pointInAnyHill(hp.x, hp.y, 0.94)){
+    ctx.fillStyle = "rgba(20,16,12,.78)";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "rgba(255,240,190,.2)";
+    ctx.beginPath(); ctx.ellipse(W / 2, horizonY, W * 0.1, H * 0.08, 0, 0, TAU); ctx.fill();
+  }
+  // ----- flechas de agujas próximas (tocables) -----
+  cabSwitchHits = [];
+  for (const swp of sws){
+    if (swp.d < 8 || swp.d > 300) continue;
+    const dx = swp.x - hp.x, dy = swp.y - hp.y;
+    const f = dx * cosH + dy * sinH;
+    if (f < 8) continue;
+    const l = -dx * sinH + dy * cosH;
+    const x = xAt(l, f), y = yAt(f) - 60 * persp(f) * 3;
+    const sw = switches.get(swp.node);
+    if (!sw) continue;
+    const act = segs.get(sw.active);
+    if (!act) continue;
+    const fromN = act.a === swp.node;
+    const pin = lutAt(act, fromN ? Math.min(30, act.len * 0.5) : act.len - Math.min(30, act.len * 0.5));
+    const nSw = nodes.get(swp.node);
+    const relA = angNorm(Math.atan2(pin.y - nSw.y, pin.x - nSw.x) - h0);
+    const icon = relA > 0.18 ? "↱" : relA < -0.18 ? "↰" : "↑";
+    const r = clamp(26 + 60 * persp(f), 26, 44);
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU);
+    ctx.fillStyle = "rgba(255,253,245,.95)"; ctx.fill();
+    ctx.lineWidth = 4; ctx.strokeStyle = "#e08b1d"; ctx.stroke();
+    ctx.fillStyle = "#20516e";
+    ctx.font = `900 ${Math.round(r * 1.15)}px sans-serif`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(icon, x, y + r * 0.05);
+    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+    cabSwitchHits.push({ x, y, r: r + 14, node: swp.node });
+  }
+  // ----- aviso / choque -----
+  if (t.warn > 0){
+    const bob = Math.sin(gameTime * 9) * 6;
+    ctx.font = "52px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("⚠️", W / 2, H * 0.24 + bob);
+    ctx.textAlign = "left";
+  }
+  if (t.stun > 0){
+    ctx.font = "44px sans-serif"; ctx.textAlign = "center";
+    for (let i = 0; i < 3; i++){
+      const a = gameTime * 4 + i * TAU / 3;
+      ctx.fillText("⭐", W / 2 + Math.cos(a) * 90, H * 0.3 + Math.sin(a) * 26);
+    }
+    ctx.textAlign = "left";
+  }
+  // ----- marco de cabina + salpicadero -----
+  drawCabFrame(t, dt);
+  // vapor de la bocina
+  for (let i = cabPuffs.length - 1; i >= 0; i--){
+    const p = cabPuffs[i];
+    p.life += dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.life > p.max){ cabPuffs.splice(i, 1); continue; }
+    const k = p.life / p.max;
+    ctx.fillStyle = `rgba(255,255,255,${0.8 * (1 - k)})`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size + k * 30, 0, TAU); ctx.fill();
+  }
+  // transición de entrada
+  if (cabIntro < 1){
+    cabIntro = Math.min(1, cabIntro + dt * 2.4);
+    ctx.fillStyle = `rgba(255,255,255,${1 - cabIntro})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+function drawCabFrame(t, dt){
+  const fh = H * 0.22;               // altura salpicadero
+  const wood = ctx.createLinearGradient(0, H - fh, 0, H);
+  wood.addColorStop(0, "#6b4a2c"); wood.addColorStop(0.15, "#8a613a"); wood.addColorStop(1, "#4e351f");
+  // pilares laterales
+  ctx.fillStyle = "#4e351f";
+  ctx.fillRect(0, 0, W * 0.045, H);
+  ctx.fillRect(W * 0.955, 0, W * 0.045, H);
+  // techo
+  ctx.fillStyle = "#4e351f";
+  ctx.fillRect(0, 0, W, H * 0.055);
+  ctx.fillStyle = "rgba(0,0,0,.25)";
+  ctx.fillRect(0, H * 0.055, W, 8);
+  // salpicadero
+  ctx.fillStyle = wood;
+  ctx.fillRect(0, H - fh, W, fh);
+  ctx.fillStyle = "rgba(255,255,255,.08)";
+  ctx.fillRect(0, H - fh, W, 6);
+  // velocímetro grande
+  const gx = W * 0.5, gy = H - fh * 0.32, gr = Math.min(fh * 0.62, 86);
+  ctx.beginPath(); ctx.arc(gx, gy, gr, 0, TAU);
+  ctx.fillStyle = "#fffdf5"; ctx.fill();
+  ctx.lineWidth = 6; ctx.strokeStyle = "#3a2a18"; ctx.stroke();
+  // marcas
+  for (let i = 0; i <= 10; i++){
+    const a = lerp(Math.PI * 0.78, Math.PI * 2.22, i / 10);
+    const c1 = Math.cos(a), s1 = Math.sin(a);
+    ctx.strokeStyle = i >= 8 ? "#d9534f" : "#4a3728";
+    ctx.lineWidth = i % 5 === 0 ? 3.5 : 2;
+    ctx.beginPath();
+    ctx.moveTo(gx + c1 * gr * 0.78, gy + s1 * gr * 0.78);
+    ctx.lineTo(gx + c1 * gr * 0.92, gy + s1 * gr * 0.92);
+    ctx.stroke();
+  }
+  // iconos velocidad
+  ctx.font = `${Math.round(gr * 0.24)}px sans-serif`; ctx.textAlign = "center";
+  ctx.fillStyle = "#4a3728";
+  ctx.fillText("🐢", gx - gr * 0.52, gy + gr * 0.42);
+  ctx.fillText("🐇", gx + gr * 0.52, gy + gr * 0.42);
+  ctx.textAlign = "left";
+  // aguja
+  const na = lerp(Math.PI * 0.78, Math.PI * 2.22, clamp(t.speed / MAX_SPEED, 0, 1));
+  ctx.strokeStyle = "#d9302c"; ctx.lineWidth = 5; ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(gx, gy);
+  ctx.lineTo(gx + Math.cos(na) * gr * 0.72, gy + Math.sin(na) * gr * 0.72);
+  ctx.stroke();
+  ctx.fillStyle = "#3a2a18";
+  ctx.beginPath(); ctx.arc(gx, gy, 8, 0, TAU); ctx.fill();
+  // palanca decorativa (refleja slider)
+  const lx = W * 0.79, ly = H - fh * 0.42, lw = Math.min(W * 0.13, 130);
+  ctx.strokeStyle = "#3a2a18"; ctx.lineWidth = 10; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(lx - lw / 2, ly); ctx.lineTo(lx + lw / 2, ly); ctx.stroke();
+  ctx.strokeStyle = "#8a613a"; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(lx - lw / 2, ly); ctx.lineTo(lx + lw / 2, ly); ctx.stroke();
+  const hxp = lx - lw / 2 + lw * t.slider;
+  ctx.strokeStyle = "#2f2f36"; ctx.lineWidth = 9; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(hxp, ly + 4); ctx.lineTo(hxp + lw * 0.1, ly - fh * 0.3); ctx.stroke();
+  ctx.fillStyle = "#e0393e";
+  ctx.beginPath(); ctx.arc(hxp + lw * 0.1, ly - fh * 0.3, 11, 0, TAU); ctx.fill();
+  ctx.strokeStyle = "#8c1f22"; ctx.lineWidth = 3; ctx.stroke();
+}
+function hornBlast(){
+  const t = cabTrain || selectedTrain;
+  Snd.whistle(true);
+  achieve("bocina");
+  if (t){
+    const hp = trainPosAt(t, t.headS - 6);
+    spawnNotes(hp.x, hp.y - 10);
+    for (let i = 0; i < 5; i++) spawnSteam(hp.x + rand(-4, 4), hp.y + rand(-4, 4));
+  }
+  if (viewMode === "cab"){
+    for (let i = 0; i < 6; i++){
+      cabPuffs.push({ x: W - rand(50, 130), y: H * 0.6 + rand(-20, 20), vx: rand(-30, -6), vy: rand(-70, -30), life: 0, max: rand(0.6, 1.1), size: rand(8, 16) });
+    }
+  }
+}
+/* ============================================================
+   MODO CONSTRUCCIÓN — arrastrar desde puntos brillantes
+   ============================================================ */
+const PIECE_LEN = 80, PIECE_R = 110;
+let buildDrag = null;       // arrastre en curso
+let deniedFlash = null;     // marca roja temporal
+function setBuildMode(on){
+  buildMode = on;
+  buildTool = "track";
+  ui.buildPanel.classList.toggle("show", on);
+  ui.buildBand.classList.toggle("show", on);
+  ui.buildHint.classList.toggle("show", on);
+  ui.btnBuild.classList.toggle("on", on);
+  ui.colorPicker.classList.remove("show");
+  updateToolButtons();
+  if (on){
+    selectTrain(null);
+    ui.buildHint.textContent = "Arrastra desde un punto brillante ✨ para crear vías";
+  }
+  buildDrag = null;
+  Snd.pop();
+  saveSoon();
+}
+function setBuildTool(tool){
+  buildTool = tool;
+  updateToolButtons();
+  ui.buildHint.textContent =
+    tool === "track" ? "Arrastra desde un punto brillante ✨ para crear vías" :
+    tool === "erase" ? "Toca un tramo de vía para borrarlo 🧽" :
+    "Toca la vía donde quieras una estación 🚉";
+  Snd.pop();
+}
+function updateToolButtons(){
+  ui.toolTrack.classList.toggle("on", buildTool === "track");
+  ui.toolErase.classList.toggle("on", buildTool === "erase");
+  ui.toolStation.classList.toggle("on", buildTool === "station");
+}
+function quantAngle(a){ return Math.round(a / (Math.PI / 4)) * (Math.PI / 4); }
+/* validez de una pieza candidata (muestrea y comprueba distancias) */
+function pieceClear(piece, ignoreNodeA, ignoreNodeB){
+  const P = [];
+  for (let i = 0; i <= 6; i++){
+    P.push(cubic(piece.p0[0], piece.p0[1], piece.c1[0], piece.c1[1], piece.c2[0], piece.c2[1], piece.p3[0], piece.p3[1], i / 6));
+  }
+  for (const [x, y] of P){
+    if (x < 40 || y < 40 || x > WORLD.w - 40 || y > WORLD.h - 40) return false;
+  }
+  for (const sg of segs.values()){
+    const touchesIgnored = sg.a === ignoreNodeA || sg.b === ignoreNodeA || sg.a === ignoreNodeB || sg.b === ignoreNodeB;
+    for (let i = touchesIgnored ? 2 : 0; i < P.length - (touchesIgnored ? 2 : 0); i++){
+      const [x, y] = P[i];
+      for (let k = 0; k < sg.px.length; k += 2){
+        if (dist2(x, y, sg.px[k], sg.py[k]) < 23 * 23) return false;
+      }
+    }
+  }
+  return true;
+}
+function buildPointerDown(wx, wy){
+  if (buildTool !== "track") return false;
+  const tol = Math.max(30, 40 / cam.z);
+  const n = nearestNode(wx, wy, tol);
+  if (!n) return false;
+  let dirA = null;
+  if (n.segs.length === 1){
+    const sg = segs.get(n.segs[0]);
+    const [ox, oy] = outwardTangent(sg, n.id);
+    dirA = Math.atan2(-oy, -ox); // hacia el vacío
+  }
+  buildDrag = { endNode: n, dirA, cand: null, laid: 0 };
+  return true;
+}
+function buildPointerMove(wx, wy){
+  const bd = buildDrag;
+  if (!bd) return;
+  const E = bd.endNode;
+  const vx = wx - E.x, vy = wy - E.y;
+  const vlen = Math.hypot(vx, vy);
+  bd.cand = null;
+  if (vlen < 30) return;
+  // si empezamos en un nodo interior, elegir dirección al arrastrar (crea desvío)
+  if (bd.dirA === null){
+    const a = quantAngle(Math.atan2(vy, vx));
+    // debe alejarse de las tangentes existentes
+    let ok = true;
+    for (const sId of E.segs){
+      const [tx2, ty2] = outwardTangent(segs.get(sId), E.id);
+      const d = Math.cos(a) * tx2 + Math.sin(a) * ty2;
+      if (d > 0.94) { ok = false; break; } // casi paralela a una vía existente
+    }
+    if (!ok){ bd.cand = { invalid: true }; return; }
+    bd.dirA = a;
+  }
+  const relA = angNorm(Math.atan2(vy, vx) - bd.dirA);
+  let piece = null, kind = "";
+  if (Math.abs(relA) < Math.PI / 8){ piece = straightPiece(E.x, E.y, bd.dirA, PIECE_LEN); kind = "straight"; }
+  else if (relA >= Math.PI / 8 && relA < Math.PI * 0.62){ piece = arcPiece(E.x, E.y, bd.dirA, Math.PI / 4, PIECE_R); kind = "curve"; }
+  else if (relA <= -Math.PI / 8 && relA > -Math.PI * 0.62){ piece = arcPiece(E.x, E.y, bd.dirA, -Math.PI / 4, PIECE_R); kind = "curve"; }
+  else return; // arrastre hacia atrás
+  // ¿soldar con un nodo cercano?
+  const weldTol = Math.max(34, 40 / cam.z);
+  const target = nearestNode(wx, wy, weldTol);
+  if (target && target !== E && dist(target.x, target.y, E.x, E.y) > 46){
+    const apx = target.x - E.x, apy = target.y - E.y;
+    const alen = Math.hypot(apx, apy) || 1;
+    const ax = apx / alen, ay = apy / alen;
+    const d0x = Math.cos(bd.dirA), d0y = Math.sin(bd.dirA);
+    if (alen < 260 && d0x * ax + d0y * ay > 0.35){
+      // ¿tangente compatible con alguna vía del nodo? (o nodo libre)
+      let okAngle = target.segs.length === 0;
+      for (const sId of target.segs){
+        const [tx2, ty2] = outwardTangent(segs.get(sId), target.id);
+        if (ax * tx2 + ay * ty2 > 0.25) okAngle = true;
+      }
+      if (okAngle && target.segs.length < 4){
+        const k = alen / 3;
+        const conn = {
+          p0: [E.x, E.y], p3: [target.x, target.y],
+          c1: [E.x + d0x * k, E.y + d0y * k],
+          c2: [target.x - ax * k, target.y - ay * k],
+          endA: Math.atan2(ay, ax)
+        };
+        const valid = pieceClear(conn, E.id, target.id);
+        bd.cand = { piece: conn, kind: "weld", weldNode: target, valid };
+        return;
+      }
+    }
+  }
+  const valid = pieceClear(piece, E.id, -1);
+  bd.cand = { piece, kind, valid };
+  // confirmar pieza si el arrastre va más allá de su final
+  if (valid && kind !== "weld"){
+    const dEnd = dist(wx, wy, piece.p3[0], piece.p3[1]);
+    const dStart = vlen;
+    if (dStart > PIECE_LEN * 0.95 && dStart > dEnd + 26){
+      commitPiece(piece);
+    }
+  }
+}
+function commitPiece(piece){
+  const bd = buildDrag;
+  const nn = addNode(piece.p3[0], piece.p3[1]);
+  addSeg(bd.endNode.id, nn.id, piece.c1[0], piece.c1[1], piece.c2[0], piece.c2[1]);
+  bd.endNode = nn;
+  bd.dirA = piece.endA;
+  bd.cand = null;
+  bd.laid++;
+  buildCount++;
+  if (buildCount >= 10) achieve("constructor");
+  spawnSteam(nn.x, nn.y);
+  Snd.pop();
+  recomputeTunnelMouths();
+  saveSoon();
+}
+function buildPointerUp(wx, wy){
+  const bd = buildDrag;
+  if (!bd){ return; }
+  if (bd.cand && bd.cand.kind === "weld" && bd.cand.valid){
+    const target = bd.cand.weldNode;
+    const p = bd.cand.piece;
+    addSeg(bd.endNode.id, target.id, p.c1[0], p.c1[1], p.c2[0], p.c2[1]);
+    buildCount++;
+    if (buildCount >= 10) achieve("constructor");
+    for (let i = 0; i < 6; i++) spawnSteam(target.x + rand(-10, 10), target.y + rand(-8, 8));
+    if (switches.has(target.id)) { Snd.clack(); toastMsg("🔀", "¡Nueva aguja creada!"); }
+    else Snd.pop();
+    recomputeTunnelMouths();
+    saveSoon();
+  }
+  buildDrag = null;
+}
+function eraseAt(wx, wy){
+  const tol = Math.max(20, 26 / cam.z);
+  const tp = nearestTrackPoint(wx, wy, tol);
+  if (!tp){ return; }
+  buildSpans();
+  const occupied = (spansCache.get(tp.seg.id) || []).length > 0;
+  if (occupied){
+    deniedFlash = { x: tp.seg.px[0], y: tp.seg.py[0], t: 0.6, seg: tp.seg.id };
+    Snd.deny();
+    toastMsg("🚫", "¡Hay un tren en ese tramo!");
+    return;
+  }
+  const p = lutAt(tp.seg, tp.s);
+  removeSeg(tp.seg.id);
+  sanitizeRoutes();
+  for (let i = 0; i < 6; i++) spawnSteam(p.x + rand(-10, 10), p.y + rand(-6, 6));
+  Snd.pop();
+  saveSoon();
+}
+function stationAt(wx, wy){
+  const tol = Math.max(24, 30 / cam.z);
+  const tp = nearestTrackPoint(wx, wy, tol);
+  if (!tp){ return; }
+  if (tp.seg.len < 70){ Snd.deny(); toastMsg("🚉", "Tramo demasiado corto"); return; }
+  const p = lutAt(tp.seg, tp.s);
+  for (const st of stationsMap.values()){
+    if (dist2(st.x, st.y, p.x, p.y) < 110 * 110){ Snd.deny(); toastMsg("🚉", "Ya hay una estación cerca"); return; }
+  }
+  addStation(tp.seg.id, tp.s);
+  achieve("estacion");
+  for (let i = 0; i < 8; i++) spawnSteam(p.x + rand(-14, 14), p.y + rand(-8, 8));
+  Snd.pop();
+  saveSoon();
+}
+/* rutas que referencian segmentos borrados */
+function sanitizeRoutes(){
+  for (const t of trains){
+    let broken = false;
+    for (const r of t.route) if (!segs.has(r.seg)) { broken = true; break; }
+    if (!broken) continue;
+    // conservar el registro donde está la cabeza
+    let idx = t.route.length - 1;
+    while (idx > 0 && t.cum[idx] > t.headS) idx--;
+    const rec = t.route[idx];
+    if (!segs.has(rec.seg)){ removeTrain(t); continue; }
+    const local = t.headS - t.cum[idx];
+    t.route = [{ seg: rec.seg, dir: rec.dir }];
+    t.headS = local;
+    rebuildCum(t);
+    t.headS = clamp(t.headS, Math.min(trainLength(t), t.total), t.total);
+    ensureBack(t);
+  }
+}
+function drawBuildOverlay(vr){
+  // puntos de todos los nodos
+  const pulse = 0.6 + Math.sin(gameTime * 5) * 0.4;
+  for (const n of nodes.values()){
+    if (n.x < vr.x0 || n.x > vr.x1 || n.y < vr.y0 || n.y > vr.y1) continue;
+    if (n.segs.length === 1){
+      // extremo libre: punto brillante pulsante
+      ctx.fillStyle = `rgba(255,255,180,${0.25 + pulse * 0.3})`;
+      ctx.beginPath(); ctx.arc(n.x, n.y, 22 + pulse * 6, 0, TAU); ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath(); ctx.arc(n.x, n.y, 9, 0, TAU); ctx.fill();
+      ctx.fillStyle = "#ffd94d";
+      ctx.beginPath(); ctx.arc(n.x, n.y, 6, 0, TAU); ctx.fill();
+    } else {
+      ctx.fillStyle = "rgba(255,255,255,.75)";
+      ctx.beginPath(); ctx.arc(n.x, n.y, 4.5, 0, TAU); ctx.fill();
+    }
+  }
+  // candidato en curso
+  if (buildDrag && buildDrag.cand && buildDrag.cand.piece){
+    const c = buildDrag.cand;
+    const p = c.piece;
+    ctx.strokeStyle = c.valid ? "rgba(80,220,90,.75)" : "rgba(230,60,50,.75)";
+    ctx.lineWidth = 14; ctx.lineCap = "round";
+    ctx.beginPath();
+    for (let i = 0; i <= 10; i++){
+      const [x, y] = cubic(p.p0[0], p.p0[1], p.c1[0], p.c1[1], p.c2[0], p.c2[1], p.p3[0], p.p3[1], i / 10);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    if (c.weldNode){
+      ctx.strokeStyle = c.valid ? "#37b24d" : "#d9534f";
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(c.weldNode.x, c.weldNode.y, 18 + pulse * 4, 0, TAU); ctx.stroke();
+    }
+  }
+  // flash de denegado (borrar tramo ocupado)
+  if (deniedFlash){
+    deniedFlash.t -= 0.016;
+    if (deniedFlash.t <= 0) deniedFlash = null;
+    else {
+      const sg = segs.get(deniedFlash.seg);
+      if (sg){
+        ctx.strokeStyle = `rgba(230,60,50,${deniedFlash.t})`;
+        ctx.lineWidth = 16; ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(sg.px[0], sg.py[0]);
+        for (let i = 1; i < sg.px.length; i++) ctx.lineTo(sg.px[i], sg.py[i]);
+        ctx.stroke();
+      }
+    }
+  }
+}
+/* ============================================================
+   ENTRADA — pointer events unificados (táctil + ratón)
+   ============================================================ */
+const pointers = new Map();
+let gesture = null;
+let lastTapInfo = { t: -10, x: 0, y: 0, trainId: 0 };
+let longPressTimer = 0;
+let dragGhost = null;
+function canvasPos(e){
+  const r = canvas.getBoundingClientRect();
+  return [e.clientX - r.left, e.clientY - r.top];
+}
+function trainAt(wx, wy){
+  const tol = Math.max(22, 28 / cam.z);
+  for (const t of trains){
+    for (const car of carList(t)){
+      const p = trainPosAt(t, car.mid);
+      if (dist2(wx, wy, p.x, p.y) < tol * tol) return t;
+    }
+  }
+  return null;
+}
+function switchNodeAt(sx, sy){
+  for (const nodeId of switches.keys()){
+    const n = nodes.get(nodeId);
+    if (!n) continue;
+    const [px, py] = proj(n.x, n.y);
+    const r = Math.max(26, 24 * cam.z);
+    if (dist2(sx, sy, px, py) < r * r) return nodeId;
+  }
+  return 0;
+}
+function firstGesture(){
+  if (!audioStarted){
+    Snd.init();
+  }
+  Snd.resume();
+}
+function onPointerDown(e){
+  e.preventDefault();
+  firstGesture();
+  if (canvas.setPointerCapture){ try { canvas.setPointerCapture(e.pointerId); } catch(err){} }
+  const [sx, sy] = canvasPos(e);
+  pointers.set(e.pointerId, { x: sx, y: sy });
+  if (viewMode === "cab"){
+    for (const h of cabSwitchHits){
+      if (dist2(sx, sy, h.x, h.y) < h.r * h.r){ toggleSwitch(h.node); return; }
+    }
+    return;
+  }
+  if (pointers.size === 2){
+    if (gesture && gesture.type === "build") buildDrag = null;
+    clearTimeout(longPressTimer);
+    dragGhost = null;
+    const ps = [...pointers.values()];
+    const mx = (ps[0].x + ps[1].x) / 2, my = (ps[0].y + ps[1].y) / 2;
+    gesture = { type: "pinch", d0: Math.max(20, dist(ps[0].x, ps[0].y, ps[1].x, ps[1].y)), z0: cam.z, mx, my };
+    return;
+  }
+  const [wx, wy] = unproj(sx, sy);
+  if (buildMode && buildTool === "track" && buildPointerDown(wx, wy)){
+    gesture = { type: "build", sx0: sx, sy0: sy };
+    return;
+  }
+  const t = !buildMode ? trainAt(wx, wy) : null;
+  if (t){
+    gesture = { type: "trainpress", train: t, sx0: sx, sy0: sy, moved: false };
+    clearTimeout(longPressTimer);
+    longPressTimer = setTimeout(() => {
+      if (gesture && gesture.type === "trainpress" && !gesture.moved && Math.abs(t.speed) < 2){
+        gesture = { type: "dragtrain", train: t };
+        dragGhost = { t, x: wx, y: wy, ok: true };
+        Snd.pop();
+      }
+    }, 520);
+    return;
+  }
+  gesture = { type: "pan", sx0: sx, sy0: sy, moved: false };
+}
+function onPointerMove(e){
+  const p = pointers.get(e.pointerId);
+  if (!p) return;
+  const [sx, sy] = canvasPos(e);
+  const dx = sx - p.x, dy = sy - p.y;
+  p.x = sx; p.y = sy;
+  if (viewMode === "cab") return;
+  if (gesture && gesture.type === "pinch" && pointers.size >= 2){
+    const ps = [...pointers.values()];
+    const d = Math.max(20, dist(ps[0].x, ps[0].y, ps[1].x, ps[1].y));
+    const mx = (ps[0].x + ps[1].x) / 2, my = (ps[0].y + ps[1].y) / 2;
+    const [wx0, wy0] = unproj(mx, my);
+    cam.z = clamp(gesture.z0 * d / gesture.d0, 0.42, 2.6);
+    const [wx1, wy1] = unproj(mx, my);
+    cam.x += wx0 - wx1; cam.y += wy0 - wy1;
+    cam.x -= (mx - gesture.mx) / cam.z;
+    cam.y -= (my - gesture.my) / (cam.z * SQ);
+    gesture.mx = mx; gesture.my = my;
+    cam.follow = 0; cam.zoomAnim = null;
+    return;
+  }
+  if (!gesture) return;
+  const [wx, wy] = unproj(sx, sy);
+  if (gesture.type === "build"){ buildPointerMove(wx, wy); return; }
+  if (gesture.type === "dragtrain"){
+    dragGhost.x = wx; dragGhost.y = wy;
+    dragGhost.ok = !!nearestTrackPoint(wx, wy, 70);
+    return;
+  }
+  if (gesture.type === "trainpress"){
+    if (dist(sx, sy, gesture.sx0, gesture.sy0) > 12){
+      clearTimeout(longPressTimer);
+      gesture = { type: "pan", sx0: gesture.sx0, sy0: gesture.sy0, moved: true };
+    }
+    return;
+  }
+  if (gesture.type === "pan"){
+    if (dist(sx, sy, gesture.sx0, gesture.sy0) > 8) gesture.moved = true;
+    if (gesture.moved){
+      cam.x -= dx / cam.z;
+      cam.y -= dy / (cam.z * SQ);
+      cam.x = clamp(cam.x, -250, WORLD.w + 250);
+      cam.y = clamp(cam.y, -250, WORLD.h + 250);
+      cam.follow = 0; cam.zoomAnim = null;
+    }
+  }
+}
+function onPointerUp(e){
+  const p = pointers.get(e.pointerId);
+  pointers.delete(e.pointerId);
+  clearTimeout(longPressTimer);
+  if (viewMode === "cab"){ gesture = null; return; }
+  if (!gesture) return;
+  if (gesture.type === "pinch"){
+    if (pointers.size < 2){
+      const rest = [...pointers.values()];
+      gesture = rest.length === 1 ? { type: "pan", sx0: rest[0].x, sy0: rest[0].y, moved: true } : null;
+    }
+    return;
+  }
+  const sx = p ? p.x : 0, sy = p ? p.y : 0;
+  const [wx, wy] = unproj(sx, sy);
+  const g = gesture;
+  gesture = null;
+  if (g.type === "build"){ buildPointerUp(wx, wy); return; }
+  if (g.type === "dragtrain"){
+    const ok = relocateTrain(g.train, wx, wy);
+    if (ok){ Snd.pop(); for (let i = 0; i < 6; i++) spawnSteam(wx + rand(-10, 10), wy + rand(-8, 8)); }
+    else Snd.deny();
+    dragGhost = null;
+    return;
+  }
+  const moved = g.moved || (g.sx0 !== undefined && dist(sx, sy, g.sx0, g.sy0) > 10);
+  if (moved) return;
+  handleTap(sx, sy, wx, wy);
+}
+function handleTap(sx, sy, wx, wy){
+  if (buildMode){
+    if (buildTool === "erase"){ eraseAt(wx, wy); return; }
+    if (buildTool === "station"){ stationAt(wx, wy); return; }
+    const swn0 = switchNodeAt(sx, sy);
+    if (swn0) toggleSwitch(swn0);
+    return;
+  }
+  const swn = switchNodeAt(sx, sy);
+  if (swn){ toggleSwitch(swn); return; }
+  const t = trainAt(wx, wy);
+  const now = performance.now() / 1000;
+  if (t){
+    const isDbl = (now - lastTapInfo.t < 0.42) && lastTapInfo.trainId === t.id && dist(sx, sy, lastTapInfo.x, lastTapInfo.y) < 46;
+    lastTapInfo = { t: now, x: sx, y: sy, trainId: t.id };
+    if (isDbl){ toggleRun(t); return; }
+    selectTrain(t);
+    return;
+  }
+  const isDblEmpty = (now - lastTapInfo.t < 0.42) && !lastTapInfo.trainId && dist(sx, sy, lastTapInfo.x, lastTapInfo.y) < 46;
+  lastTapInfo = { t: now, x: sx, y: sy, trainId: 0 };
+  if (isDblEmpty){
+    startZoomAnim(Math.min(2.6, cam.z * 1.5), wx, wy);
+    return;
+  }
+  selectTrain(null);
+  ui.settingsPanel.classList.remove("show");
+  ui.colorPicker.classList.remove("show");
+}
+function startZoomAnim(toZ, wx, wy){
+  cam.zoomAnim = { from: cam.z, to: toZ, t: 0, wx, wy };
+}
+function updateZoomAnim(dt){
+  const za = cam.zoomAnim;
+  if (!za) return;
+  za.t = Math.min(1, za.t + dt * 3);
+  const k = za.t * za.t * (3 - 2 * za.t);
+  const [sx, sy] = proj(za.wx, za.wy);
+  cam.z = lerp(za.from, za.to, k);
+  const [wx1, wy1] = unproj(sx, sy);
+  cam.x += za.wx - wx1; cam.y += za.wy - wy1;
+  if (za.t >= 1) cam.zoomAnim = null;
+}
+function drawDragGhost(){
+  if (!dragGhost) return;
+  screenTransform();
+  const [sx, sy] = proj(dragGhost.x, dragGhost.y);
+  const tp = nearestTrackPoint(dragGhost.x, dragGhost.y, 70);
+  if (tp){
+    const pt = lutAt(tp.seg, tp.s);
+    const [tx, ty] = proj(pt.x, pt.y);
+    ctx.strokeStyle = "rgba(80,220,90,.9)";
+    ctx.lineWidth = 4;
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath(); ctx.ellipse(tx, ty, 34 * cam.z, 22 * cam.z, 0, 0, TAU); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  const col = TRAIN_COLORS[dragGhost.t.color];
+  ctx.globalAlpha = 0.75;
+  ctx.fillStyle = col.c;
+  rrectPath(ctx, sx - 24 * cam.z, sy - 9 * cam.z, 48 * cam.z, 18 * cam.z, 7 * cam.z);
+  ctx.fill();
+  ctx.strokeStyle = col.d; ctx.lineWidth = 2;
+  rrectPath(ctx, sx - 24 * cam.z, sy - 9 * cam.z, 48 * cam.z, 18 * cam.z, 7 * cam.z);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+function onWheel(e){
+  e.preventDefault();
+  if (viewMode !== "aerial") return;
+  const [sx, sy] = canvasPos(e);
+  const [wx0, wy0] = unproj(sx, sy);
+  cam.z = clamp(cam.z * Math.exp(-e.deltaY * 0.0013), 0.42, 2.6);
+  const [wx1, wy1] = unproj(sx, sy);
+  cam.x += wx0 - wx1; cam.y += wy0 - wy1;
+  cam.zoomAnim = null;
+}
+/* ============================================================
+   UI — paneles, logros, medalla, onboarding
+   ============================================================ */
+const ACH = {
+  primer_tren: { icon: "🚂", text: "¡Primer tren creado!" },
+  constructor: { icon: "🛤️", text: "¡10 tramos construidos!" },
+  seguro:      { icon: "🥇", text: "¡5 minutos sin choques!" },
+  tren_largo:  { icon: "🚃", text: "¡Tren con 8 vagones!" },
+  bocina:      { icon: "📯", text: "¡Piiii piiii!" },
+  maquinista:  { icon: "👁️", text: "¡Eres maquinista!" },
+  estacion:    { icon: "🚉", text: "¡Estación construida!" }
+};
+let toastQueue = [], toastBusy = false;
+function toastMsg(icon, text, isAch){
+  toastQueue.push({ icon, text, isAch });
+  if (!toastBusy) nextToast();
+}
+function nextToast(){
+  const item = toastQueue.shift();
+  if (!item){ toastBusy = false; return; }
+  toastBusy = true;
+  ui.toast.querySelector(".star").textContent = item.icon;
+  ui.toastText.textContent = item.text;
+  ui.toast.classList.add("show");
+  setTimeout(() => {
+    ui.toast.classList.remove("show");
+    setTimeout(nextToast, 350);
+  }, 2400);
+}
+function achieve(id){
+  if (achievementsDone[id] || !ACH[id]) return;
+  achievementsDone[id] = true;
+  toastMsg("⭐", ACH[id].icon + " " + ACH[id].text, true);
+  spawnConfetti();
+  Snd.fanfare();
+  saveSoon();
+}
+function selectTrain(t){
+  selectedTrain = t;
+  updateTrainPanel();
+  if (t){ Snd.pop(); onboardingEvent("select"); }
+}
+function toggleRun(t){
+  t.running = !t.running;
+  if (t.running){
+    t.stun = 0;
+    Snd.whistle(false);
+    const hp = trainPosAt(t, t.headS - 9);
+    for (let i = 0; i < 6; i++) spawnSteam(hp.x + rand(-6, 6), hp.y + rand(-6, 4));
+    onboardingEvent("play");
+  } else Snd.pop();
+  updateTrainPanel();
+  syncCabStopBtn();
+}
+function updateTrainPanel(){
+  const t = selectedTrain;
+  const show = !!t && viewMode === "aerial" && !buildMode;
+  ui.trainPanel.classList.toggle("show", show);
+  if (!t) return;
+  ui.tpName.textContent = "🚂 TREN " + TRAIN_COLORS[t.color].name;
+  ui.tpName.style.color = TRAIN_COLORS[t.color].d;
+  ui.tpPlay.textContent = t.running ? "⏸️" : "▶️";
+  ui.tpSpeed.value = Math.round(t.slider * 100);
+  ui.tpReverse.disabled = t.speed > 2;
+  ui.tpAddWagon.disabled = t.wagons.length >= MAX_WAGONS;
+  ui.tpDelWagon.disabled = t.wagons.length === 0;
+  ui.tpFollow.classList.toggle("on", cam.follow === t.id);
+}
+function positionTrainPanel(){
+  const t = selectedTrain;
+  if (!t || viewMode !== "aerial" || buildMode) return;
+  const hp = trainPosAt(t, t.headS - LOCO_LEN / 2);
+  const [sx, sy] = proj(hp.x, hp.y);
+  const pw = ui.trainPanel.offsetWidth || 238;
+  const ph = ui.trainPanel.offsetHeight || 210;
+  let x = clamp(sx - pw / 2, 8, W - pw - 8);
+  let y = sy + 44 * cam.z;
+  if (y + ph > H - 100) y = sy - ph - 52 * cam.z;
+  y = clamp(y, 64, H - ph - 8);
+  ui.trainPanel.style.left = x + "px";
+  ui.trainPanel.style.top = y + "px";
+  const dis = t.speed > 2;
+  if (ui.tpReverse.disabled !== dis) ui.tpReverse.disabled = dis;
+  const runIcon = t.running ? "⏸️" : "▶️";
+  if (ui.tpPlay.textContent !== runIcon) ui.tpPlay.textContent = runIcon;
+}
+/* ---------------- medalla ---------------- */
+let medalUiT = 0;
+function updateMedalUI(){
+  const m = Math.floor(medalTime / 60), s = Math.floor(medalTime % 60);
+  ui.medalTime.textContent = m + ":" + String(s).padStart(2, "0");
+  ui.medalIcon.textContent = medalTime >= 300 ? "🥇" : medalTime >= 180 ? "🥈" : medalTime >= 60 ? "🥉" : "🕐";
+}
+/* ---------------- onboarding ---------------- */
+function startOnboarding(force){
+  if (onboarding.done && !force) return;
+  onboarding.active = true;
+  onboarding.step = 0;
+  onboarding.doneMsg = 0;
+}
+function skipOnboarding(){
+  onboarding.active = false;
+  onboarding.done = true;
+  ui.bubble.classList.remove("show");
+  ui.hand.classList.remove("show");
+  saveSoon();
+}
+function finishOnboarding(){
+  onboarding.active = false;
+  onboarding.done = true;
+  ui.hand.classList.remove("show");
+  ui.bubbleText.textContent = "¡Ya eres maquinista! 🎉";
+  ui.bubble.style.left = (W / 2 - 120) + "px";
+  ui.bubble.style.top = (H * 0.3) + "px";
+  ui.bubble.classList.add("show");
+  spawnConfetti();
+  Snd.fanfare();
+  setTimeout(() => ui.bubble.classList.remove("show"), 2600);
+  saveSoon();
+}
+function onboardingEvent(type){
+  if (!onboarding.active) return;
+  if (onboarding.step === 0 && type === "select") onboarding.step = 1;
+  else if (onboarding.step === 1 && type === "play") onboarding.step = 2;
+  else if (onboarding.step === 2 && type === "switch") finishOnboarding();
+}
+function onboardingTick(){
+  if (!onboarding.active){ return; }
+  if (viewMode !== "aerial" || buildMode){
+    ui.bubble.classList.remove("show");
+    ui.hand.classList.remove("show");
+    return;
+  }
+  if (onboarding.step === 1 && !selectedTrain) onboarding.step = 0;
+  let tx = W / 2, ty = H / 2, text = "";
+  if (onboarding.step === 0){
+    const t = trains[0];
+    if (!t) { skipOnboarding(); return; }
+    const hp = trainPosAt(t, t.headS - LOCO_LEN / 2);
+    [tx, ty] = proj(hp.x, hp.y);
+    text = "¡Toca el tren!";
+  } else if (onboarding.step === 1){
+    const r = ui.tpPlay.getBoundingClientRect();
+    tx = r.left + r.width / 2; ty = r.top + r.height / 2;
+    text = "¡Pulsa ▶️ para arrancar!";
+  } else {
+    const n = nodes.get(firstSwitchNode);
+    if (!n || !switches.has(firstSwitchNode)){ finishOnboarding(); return; }
+    [tx, ty] = proj(n.x, n.y);
+    text = "¡Toca la aguja 🔀 para cambiar de vía!";
+  }
+  ui.bubbleText.textContent = text;
+  ui.bubble.classList.add("show");
+  ui.hand.classList.add("show");
+  const bw = ui.bubble.offsetWidth || 220, bh = ui.bubble.offsetHeight || 70;
+  ui.bubble.style.left = clamp(tx - bw / 2, 10, W - bw - 10) + "px";
+  ui.bubble.style.top = clamp(ty - bh - 74, 10, H - bh - 10) + "px";
+  ui.hand.style.left = (tx - 12) + "px";
+  ui.hand.style.top = (ty - 6) + "px";
+}
+/* ---------------- botón mantener pulsado ---------------- */
+function setupHold(btn, ms, cb){
+  let timer = 0, start = 0, raf = 0;
+  const fill = btn.querySelector(".fill");
+  const tick = () => {
+    const k = clamp((performance.now() - start) / ms, 0, 1);
+    if (fill) fill.style.width = (k * 100) + "%";
+    if (k < 1) raf = requestAnimationFrame(tick);
+  };
+  const cancel = () => {
+    clearTimeout(timer); cancelAnimationFrame(raf);
+    if (fill) fill.style.width = "0%";
+  };
+  btn.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    start = performance.now();
+    raf = requestAnimationFrame(tick);
+    timer = setTimeout(() => { cancel(); cb(); }, ms);
+  });
+  btn.addEventListener("pointerup", cancel);
+  btn.addEventListener("pointerleave", cancel);
+  btn.addEventListener("pointercancel", cancel);
+}
+/* ---------------- inicialización de la UI ---------------- */
+function initUI(){
+  const ids = ["medalIcon","medalTime","btnSound","btnFull","btnSettings","bottomBar","btnNewTrain","btnBuild",
+    "colorPicker","buildPanel","toolTrack","toolErase","toolStation","btnBuildDone","buildBand","buildHint",
+    "trainPanel","tpName","tpPlay","tpReverse","tpFollow","tpCab","tpSpeed","tpAddWagon","tpDelWagon","tpDelete",
+    "cabUI","btnBackMap","btnHorn","cabSpeedRange","btnCabStop","settingsPanel","stTutorial","stReset",
+    "toast","toastText","bubble","bubbleText","bubbleSkip","hand","topLeft","topRight"];
+  for (const id of ids) ui[id] = document.getElementById(id);
+  // selector de color de tren
+  TRAIN_COLORS.forEach((c, i) => {
+    const dot = document.createElement("div");
+    dot.className = "colorDot";
+    dot.style.background = `radial-gradient(circle at 35% 30%, ${c.c}, ${c.d})`;
+    dot.addEventListener("pointerdown", e => e.stopPropagation());
+    dot.addEventListener("click", () => {
+      ui.colorPicker.classList.remove("show");
+      placeNewTrain(i);
+    });
+    ui.colorPicker.appendChild(dot);
+  });
+  ui.btnNewTrain.addEventListener("click", () => {
+    if (buildMode) setBuildMode(false);
+    ui.colorPicker.classList.toggle("show");
+    ui.settingsPanel.classList.remove("show");
+    Snd.pop();
+  });
+  ui.btnBuild.addEventListener("click", () => setBuildMode(!buildMode));
+  ui.btnBuildDone.addEventListener("click", () => setBuildMode(false));
+  ui.toolTrack.addEventListener("click", () => setBuildTool("track"));
+  ui.toolErase.addEventListener("click", () => setBuildTool("erase"));
+  ui.toolStation.addEventListener("click", () => setBuildTool("station"));
+  // panel de tren
+  ui.tpPlay.addEventListener("click", () => { if (selectedTrain) toggleRun(selectedTrain); });
+  ui.tpReverse.addEventListener("click", () => {
+    const t = selectedTrain;
+    if (!t) return;
+    if (t.speed > 2){ Snd.deny(); return; }
+    reverseTrain(t);
+    Snd.clack();
+    const hp = trainPosAt(t, t.headS);
+    for (let i = 0; i < 4; i++) spawnSteam(hp.x + rand(-8, 8), hp.y + rand(-6, 4));
+  });
+  ui.tpSpeed.addEventListener("input", () => {
+    if (selectedTrain) selectedTrain.slider = ui.tpSpeed.value / 100;
+  });
+  ui.tpAddWagon.addEventListener("click", () => {
+    const t = selectedTrain;
+    if (!t || t.wagons.length >= MAX_WAGONS){ Snd.deny(); return; }
+    t.wagons.push(WAGON_TYPES[t.wagons.length % WAGON_TYPES.length]);
+    ensureBack(t);
+    const tp = trainPosAt(t, t.headS - trainLength(t) + WAGON_LEN / 2);
+    for (let i = 0; i < 5; i++) spawnSteam(tp.x + rand(-8, 8), tp.y + rand(-6, 4));
+    if (t.wagons.length >= MAX_WAGONS) achieve("tren_largo");
+    Snd.pop();
+    updateTrainPanel();
+    saveSoon();
+  });
+  ui.tpDelWagon.addEventListener("click", () => {
+    const t = selectedTrain;
+    if (!t || !t.wagons.length){ Snd.deny(); return; }
+    const tp = trainPosAt(t, t.headS - trainLength(t) + WAGON_LEN / 2);
+    t.wagons.pop();
+    for (let i = 0; i < 4; i++) spawnSteam(tp.x + rand(-8, 8), tp.y + rand(-6, 4));
+    Snd.pop();
+    updateTrainPanel();
+    saveSoon();
+  });
+  ui.tpFollow.addEventListener("click", () => {
+    const t = selectedTrain;
+    if (!t) return;
+    cam.follow = cam.follow === t.id ? 0 : t.id;
+    Snd.pop();
+    updateTrainPanel();
+  });
+  ui.tpCab.addEventListener("click", () => { if (selectedTrain) enterCab(selectedTrain); });
+  setupHold(ui.tpDelete, 900, () => {
+    const t = selectedTrain;
+    if (!t) return;
+    const hp = trainPosAt(t, t.headS - trainLength(t) / 2);
+    for (let i = 0; i < 10; i++) spawnSteam(hp.x + rand(-20, 20), hp.y + rand(-10, 10));
+    removeTrain(t);
+    Snd.pop();
+    saveSoon();
+  });
+  // cabina
+  ui.btnBackMap.addEventListener("click", exitCab);
+  ui.btnHorn.addEventListener("click", hornBlast);
+  ui.cabSpeedRange.addEventListener("input", () => {
+    if (cabTrain) cabTrain.slider = ui.cabSpeedRange.value / 100;
+  });
+  ui.btnCabStop.addEventListener("click", () => { if (cabTrain) toggleRun(cabTrain); });
+  // esquina superior derecha
+  ui.btnSound.addEventListener("click", () => {
+    firstGesture();
+    Snd.setMuted(!Snd.muted);
+    ui.btnSound.textContent = Snd.muted ? "🔇" : "🔊";
+    saveSoon();
+  });
+  if (document.documentElement.requestFullscreen){
+    ui.btnFull.addEventListener("click", () => {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+      else document.exitFullscreen().catch(() => {});
+      Snd.pop();
+    });
+  } else ui.btnFull.style.display = "none";
+  ui.btnSettings.addEventListener("click", () => {
+    ui.settingsPanel.classList.toggle("show");
+    ui.colorPicker.classList.remove("show");
+    Snd.pop();
+  });
+  ui.stTutorial.addEventListener("click", () => {
+    ui.settingsPanel.classList.remove("show");
+    if (buildMode) setBuildMode(false);
+    if (viewMode === "cab") exitCab();
+    startOnboarding(true);
+    Snd.pop();
+  });
+  setupHold(ui.stReset, 1100, () => {
+    try { localStorage.removeItem(SAVE_KEY); } catch(e){}
+    location.reload();
+  });
+  ui.bubbleSkip.addEventListener("click", skipOnboarding);
+  // gestos del lienzo
+  canvas.addEventListener("pointerdown", onPointerDown);
+  canvas.addEventListener("pointermove", onPointerMove);
+  canvas.addEventListener("pointerup", onPointerUp);
+  canvas.addEventListener("pointercancel", onPointerUp);
+  canvas.addEventListener("wheel", onWheel, { passive: false });
+  document.addEventListener("pointerdown", firstGesture, { capture: true });
+  document.addEventListener("contextmenu", e => e.preventDefault());
+  document.addEventListener("gesturestart", e => e.preventDefault());
+}
+/* ============================================================
+   PERSISTENCIA — localStorage
+   ============================================================ */
+let saveTimer = 4;
+function saveSoon(){ saveTimer = Math.min(saveTimer, 0.8); }
+function serialize(){
+  const tArr = [];
+  for (const t of trains){
+    let idx = t.route.length - 1;
+    while (idx > 0 && t.cum[idx] > t.headS) idx--;
+    const rec = t.route[idx];
+    if (!segs.has(rec.seg)) continue;
+    tArr.push({
+      color: t.color, wagons: t.wagons, seg: rec.seg, dir: rec.dir,
+      local: +(t.headS - t.cum[idx]).toFixed(2), slider: +t.slider.toFixed(2)
+    });
+  }
+  return {
+    v: 1, nid, sid, stationId, trainId,
+    nodes: [...nodes.values()].map(n => [n.id, +n.x.toFixed(2), +n.y.toFixed(2)]),
+    segs: [...segs.values()].map(s => [s.id, s.a, s.b, +s.c[0].toFixed(2), +s.c[1].toFixed(2), +s.c[2].toFixed(2), +s.c[3].toFixed(2)]),
+    stations: [...stationsMap.values()].map(st => [st.id, st.seg, +st.s.toFixed(2)]),
+    switches: [...switches.entries()].map(([nId, sw]) => [nId, sw.active]),
+    trains: tArr,
+    medalTime: Math.floor(medalTime),
+    ach: achievementsDone,
+    obDone: onboarding.done,
+    muted: Snd.muted,
+    cam: { x: Math.round(cam.x), y: Math.round(cam.y), z: +cam.z.toFixed(2) },
+    buildCount
+  };
+}
+function saveGame(){
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(serialize())); } catch(e){}
+}
+function deserialize(d){
+  if (!d || d.v !== 1 || !Array.isArray(d.nodes) || !Array.isArray(d.segs)) return false;
+  nodes = new Map(); segs = new Map(); stationsMap = new Map(); switches = new Map(); trains = [];
+  for (const nd of d.nodes){
+    if (!Array.isArray(nd) || nd.length < 3) continue;
+    nodes.set(nd[0], { id: nd[0], x: nd[1], y: nd[2], segs: [] });
+  }
+  for (const sd of d.segs){
+    if (!Array.isArray(sd) || sd.length < 7) continue;
+    const [id, a, b, c1x, c1y, c2x, c2y] = sd;
+    if (!nodes.has(a) || !nodes.has(b)) continue;
+    const s = { id, a, b, c: [c1x, c1y, c2x, c2y], bridges: [], stations: [] };
+    segs.set(id, s);
+    nodes.get(a).segs.push(id);
+    nodes.get(b).segs.push(id);
+    buildLUT(s);
+    computeWaterSpans(s);
+  }
+  for (const n of [...nodes.values()]) if (!n.segs.length) nodes.delete(n.id);
+  if (!segs.size) return false;
+  for (const n of nodes.values()) refreshSwitchAt(n.id);
+  if (Array.isArray(d.switches)){
+    for (const [nId, act] of d.switches){
+      const sw = switches.get(nId);
+      if (sw && sw.options.includes(act)) sw.active = act;
+    }
+  }
+  if (Array.isArray(d.stations)){
+    for (const [id, segId, s] of d.stations){
+      const sg = segs.get(segId);
+      if (!sg) continue;
+      const sc = clamp(s, 0, sg.len);
+      const p = lutAt(sg, sc);
+      stationsMap.set(id, { id, seg: segId, s: sc, x: p.x, y: p.y, tx: p.tx, ty: p.ty });
+      sg.stations.push(id);
+    }
+  }
+  nid = Math.max(d.nid || 1, ...[...nodes.keys()], 1) + 1;
+  sid = Math.max(d.sid || 1, ...[...segs.keys()], 1) + 1;
+  stationId = Math.max(d.stationId || 1, ...[...stationsMap.keys()], 1) + 1;
+  recomputeTunnelMouths();
+  if (Array.isArray(d.trains)){
+    for (const td of d.trains){
+      if (!td || !segs.has(td.seg) || trains.length >= MAX_TRAINS) continue;
+      const wag = Array.isArray(td.wagons) ? td.wagons.filter(w => WAGON_TYPES.includes(w)) : [];
+      const t = makeTrain(td.color || 0, td.seg, td.dir === -1 ? -1 : 1, td.local || 50, wag);
+      t.slider = clamp(td.slider === undefined ? 0.5 : td.slider, 0, 1);
+    }
+  }
+  trainId = Math.max(d.trainId || 1, ...trains.map(t => t.id), 1) + 1;
+  medalTime = d.medalTime || 0;
+  achievementsDone = d.ach && typeof d.ach === "object" ? d.ach : {};
+  onboarding.done = !!d.obDone;
+  Snd.muted = !!d.muted;
+  buildCount = d.buildCount || 0;
+  if (d.cam){
+    cam.x = clamp(d.cam.x, -250, WORLD.w + 250);
+    cam.y = clamp(d.cam.y, -250, WORLD.h + 250);
+    cam.z = clamp(d.cam.z || 0.9, 0.42, 2.6);
+  }
+  firstSwitchNode = switches.size ? [...switches.keys()][0] : 0;
+  return true;
+}
+/* ============================================================
+   BUCLE PRINCIPAL
+   ============================================================ */
+let lastTs = 0, frameEma = 16, qualityCooldown = 3;
+function update(dt){
+  Snd.updateMusic();
+  updateZoomAnim(dt);
+  if (cam.follow){
+    const t = trains.find(tt => tt.id === cam.follow);
+    if (t){
+      const hp = trainPosAt(t, t.headS);
+      const k = Math.min(1, dt * 3.2);
+      cam.x = lerp(cam.x, hp.x, k);
+      cam.y = lerp(cam.y, hp.y, k);
+    } else cam.follow = 0;
+  }
+  buildSpans();
+  for (const t of trains) updateTrain(t, dt);
+  buildSpans();
+  checkCollisions();
+  updateParticles(dt);
+  updateAmbient(dt);
+  const anyMoving = trains.some(t => t.speed > 10);
+  if (anyMoving) medalTime += dt;
+  if (medalTime >= 300) achieve("seguro");
+  medalUiT -= dt;
+  if (medalUiT <= 0){ medalUiT = 0.25; updateMedalUI(); }
+  positionTrainPanel();
+  onboardingTick();
+  saveTimer -= dt;
+  if (saveTimer <= 0){ saveTimer = 4; saveGame(); }
+  qualityCooldown -= dt;
+  if (qualityCooldown <= 0){
+    if (frameEma > 27 && quality > 0){ quality--; qualityCooldown = 5; }
+    else if (frameEma < 15 && quality < 2){ quality++; qualityCooldown = 8; }
+    else qualityCooldown = 1;
+  }
+}
+function frame(ts){
+  requestAnimationFrame(frame);
+  if (!lastTs) lastTs = ts;
+  let dtMs = ts - lastTs;
+  lastTs = ts;
+  frameEma = frameEma * 0.94 + Math.min(dtMs, 60) * 0.06;
+  const dt = clamp(dtMs / 1000, 0, 0.05);
+  gameTime += dt;
+  update(dt);
+  if (viewMode === "aerial"){
+    renderAerial();
+    drawDragGhost();
+  } else {
+    renderCab(dt);
+  }
+  drawScreenParticles();
+}
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  fxCanvas.width = Math.round(W * DPR);
+  fxCanvas.height = Math.round(H * DPR);
+}
+/* ============================================================
+   ARRANQUE
+   ============================================================ */
+function init(){
+  canvas = document.getElementById("game");
+  ctx = canvas.getContext("2d");
+  fxCanvas = document.getElementById("fx");
+  fxCtx = fxCanvas.getContext("2d");
+  initUI();
+  resize();
+  window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", () => setTimeout(resize, 250));
+  buildTerrain();
+  let loaded = false;
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (raw) loaded = deserialize(JSON.parse(raw));
+  } catch(e){ loaded = false; }
+  if (!loaded){
+    nodes = new Map(); segs = new Map(); stationsMap = new Map(); switches = new Map(); trains = [];
+    nid = 1; sid = 1; stationId = 1; trainId = 1;
+    buildInitialTrack();
+    const seg = segs.get(initialStationSegId);
+    const st = [...stationsMap.values()][0];
+    if (seg){
+      const t = makeTrain(0, seg.id, 1, (st ? st.s : seg.len / 2) + LOCO_LEN / 2 + 8, ["pasajeros", "mercancias"]);
+      t.lastStation = st ? st.id : 0;
+    }
+    cam.x = 1010; cam.y = 830; cam.z = 0.9;
+  }
+  buildScenery();
+  recomputeTunnelMouths();
+  ui.btnSound.textContent = Snd.muted ? "🔇" : "🔊";
+  updateMedalUI();
+  updateTrainPanel();
+  if (!onboarding.done) startOnboarding();
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden){ saveGame(); Snd.suspend(); }
+    else { Snd.resume(); }
+    lastTs = 0;
+  });
+  window.addEventListener("pagehide", saveGame);
+  requestAnimationFrame(frame);
+}
+init();
+</script>
+</body>
+</html>
