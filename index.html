@@ -146,6 +146,24 @@
   }
   #buildHint.show{ display:block; }
 
+  /* ---------- panel modo paisaje ---------- */
+  #sceneryPanel{
+    position:absolute; left:50%; transform:translateX(-50%);
+    bottom:calc(92px + var(--safe-b)); z-index:25;
+    background:var(--panel-bg); border:3px solid #37a84d; border-radius:22px;
+    padding:10px 12px; display:none; gap:8px; align-items:center; flex-wrap:wrap;
+    max-width:94vw; justify-content:center;
+    box-shadow:0 8px 24px rgba(0,0,0,.25); animation:pop .18s ease;
+  }
+  #sceneryPanel.show{ display:flex; }
+  #sceneryPanel .btn{ min-width:48px; min-height:48px; font-size:23px; border-radius:14px; padding:4px 6px; }
+  #sceneryBand{
+    position:absolute; inset:0; pointer-events:none; z-index:15; display:none;
+    border:6px dashed rgba(55,168,77,.85); border-radius:4px;
+    box-shadow:inset 0 0 40px rgba(55,168,77,.25);
+  }
+  #sceneryBand.show{ display:block; }
+
   /* ---------- panel tren ---------- */
   #trainPanel{
     position:fixed; left:50%; transform:translateX(-50%);
@@ -269,6 +287,7 @@
 <div id="bottomBar">
   <button class="btn big" id="btnNewTrain" title="Nuevo tren">➕🚂</button>
   <button class="btn big" id="btnBuild" title="Construir vías">🛤️</button>
+  <button class="btn big" id="btnScenery" title="Editar paisaje">🌳</button>
 </div>
 
 <div id="colorPicker"></div>
@@ -279,6 +298,21 @@
   <button class="btn" id="toolErase" title="Borrar vía">🧽</button>
   <button class="btn" id="toolStation" title="Estación">🚉</button>
   <button class="btn" id="btnBuildDone" title="Terminar" style="background:#d3f2c8;border-color:#37b24d;">✔️</button>
+</div>
+
+<div id="sceneryBand"></div>
+<div id="sceneryPanel">
+  <button class="btn" id="scTree" title="Árbol">🌳</button>
+  <button class="btn" id="scPine" title="Pino">🌲</button>
+  <button class="btn" id="scHouse" title="Casa">🏠</button>
+  <button class="btn" id="scCow" title="Vaca">🐄</button>
+  <button class="btn" id="scSheep" title="Oveja">🐑</button>
+  <button class="btn" id="scPerson" title="Persona">🚶</button>
+  <button class="btn" id="scLake" title="Lago">🏞️</button>
+  <button class="btn" id="scMountain" title="Montaña">⛰️</button>
+  <button class="btn" id="scRiver" title="Dibujar río">🌊</button>
+  <button class="btn" id="scErase" title="Borrar paisaje">🧽</button>
+  <button class="btn" id="btnSceneryDone" title="Terminar" style="background:#d3f2c8;border-color:#37b24d;">✔️</button>
 </div>
 
 <div id="trainPanel">
@@ -344,7 +378,7 @@ function mulberry32(seed){ let t = seed >>> 0; return function(){ t += 0x6D2B79F
 
 /* ---------------- constantes del juego ---------------- */
 const SQ = 0.62;                 // aplastado vertical 2.5D
-const WORLD = { w: 2300, h: 1500 };
+const WORLD = { w: 4600, h: 3000 };   // espacio de construcción ampliado x4 en área
 const MAX_TRAINS = 5, MAX_WAGONS = 8;
 const LOCO_LEN = 46, WAGON_LEN = 36, CAR_GAP = 7;
 const MAX_SPEED = 130;           // unidades/s
@@ -373,6 +407,10 @@ let cam = { x: 1050, y: 800, z: 0.9, follow: 0, zoomAnim: null };
 let selectedTrain = null;
 let viewMode = "aerial";         // aerial | cab
 let buildMode = false, buildTool = "track";
+let sceneryMode = false, sceneryTool = "tree";
+let userDecor = [];          // decoración colocada por el jugador (persistida)
+let userRivers = [];         // ríos dibujados por el jugador: [ [ [x,y],... ], ... ]
+let riverDraw = null;        // río en construcción (array de puntos)
 let medalTime = 0, buildCount = 0;
 let quality = 2;                 // 2 alto, 1 medio, 0 bajo
 let gameTime = 0;
@@ -824,16 +862,19 @@ function buildTerrain(){
   // colinas (túneles)
   hills = [
     { x: 330, y: 300, rx: 175, ry: 118, mouths: [] },
-    { x: 1990, y: 1190, rx: 195, ry: 128, mouths: [] }
+    { x: 1990, y: 1190, rx: 195, ry: 128, mouths: [] },
+    { x: 3550, y: 520, rx: 205, ry: 135, mouths: [] },
+    { x: 3980, y: 2360, rx: 220, ry: 145, mouths: [] },
+    { x: 900, y: 2500, rx: 190, ry: 125, mouths: [] }
   ];
   // parches de hierba (tonos) fijos
   terrainBlobs = [];
-  for (let i = 0; i < 42; i++){
+  for (let i = 0; i < 168; i++){
     terrainBlobs.push({ x: rng()*WORLD.w, y: rng()*WORLD.h, r: 90 + rng()*190, tone: rng() });
   }
   // nubes
   clouds = [];
-  for (let i = 0; i < 6; i++){
+  for (let i = 0; i < 14; i++){
     clouds.push({ x: rng()*WORLD.w, y: rng()*WORLD.h*0.9, v: 4 + rng()*7, s: 0.7 + rng()*0.9 });
   }
 }
@@ -841,8 +882,9 @@ function buildScenery(){
   const rng = mulberry32(20240612);
   decor = [];
   const put = (type, x, y, v, s) => decor.push({ type, x, y, v: v ?? rng(), s: s || 1 });
-  // montañas al fondo (norte)
-  for (let i = 0; i < 7; i++) put("mountain", 130 + i * 330 + rng()*80, 55 + rng()*40, rng(), 0.8 + rng()*0.7);
+  // montañas al fondo (norte) — cubriendo todo el ancho del mundo
+  const nMountains = Math.ceil(WORLD.w / 320);
+  for (let i = 0; i < nMountains; i++) put("mountain", 130 + i * 320 + rng()*80, 55 + rng()*40, rng(), 0.8 + rng()*0.7);
   // pueblo
   put("house", 1500, 400, 0.1, 1.05); put("house", 1600, 445, 0.45, 0.95);
   put("house", 1435, 470, 0.8, 1); put("house", 1560, 520, 0.3, 0.9);
@@ -870,15 +912,15 @@ function buildScenery(){
     return true;
   };
   let guard = 0;
-  for (let i = 0; i < 30 && guard < 700; guard++){
+  for (let i = 0; i < 120 && guard < 2800; guard++){
     const x = rng() * WORLD.w, y = 150 + rng() * (WORLD.h - 200);
     if (okSpot(x, y, 30)){ put(rng() < 0.6 ? "tree" : "pine", x, y, rng(), 0.8 + rng()*0.55); i++; }
   }
-  for (let i = 0; i < 16 && guard < 1400; guard++){
+  for (let i = 0; i < 64 && guard < 5600; guard++){
     const x = rng() * WORLD.w, y = 150 + rng() * (WORLD.h - 200);
     if (okSpot(x, y, 12)){ put("bush", x, y, rng(), 0.7 + rng()*0.5); i++; }
   }
-  for (let i = 0; i < 60 && guard < 2400; guard++){
+  for (let i = 0; i < 240 && guard < 9600; guard++){
     const x = rng() * WORLD.w, y = 140 + rng() * (WORLD.h - 180);
     if (!nearWater(x, y, 6) && !pointInAnyHill(x, y, 1.05)){ put("flower", x, y, rng(), 1); i++; }
   }
@@ -886,6 +928,8 @@ function buildScenery(){
   for (const h of hills){
     for (let i = 0; i < 3; i++) put("pine", h.x + (rng()-0.5)*h.rx*0.8, h.y - h.ry*0.25 + rng()*h.ry*0.7, rng(), 0.55 + rng()*0.3);
   }
+  // decoración añadida por el jugador (persistida)
+  for (const u of userDecor) decor.push(u);
 }
 let terrainBlobs = [];
 /* ============================================================
@@ -1438,6 +1482,43 @@ function sprSheep(v){
     c.fillStyle = "#4a4038"; c.fillRect(11, 18, 2.4, 4); c.fillRect(19, 18, 2.4, 4);
   });
 }
+function sprPerson(v){
+  const shirts = ["#e05a4d", "#3f8fd0", "#37a84d", "#f2b705", "#8e5bd6", "#e07bb0"];
+  const pants = ["#3a4a63", "#5a3d24", "#4a4a55", "#2f5a3a"];
+  const hairs = ["#3a2a1a", "#6a4a2a", "#1a1a1a", "#caa14a"];
+  const skins = ["#f2c79a", "#d9a273", "#a9713f"];
+  const i = Math.floor(v * shirts.length) % shirts.length;
+  const j = Math.floor(v * 7 * pants.length) % pants.length;
+  const skin = skins[Math.floor(v * 5) % 3];
+  return getSprite("person" + i + "_" + j, 26, 54, 13, 50, c => {
+    shadow(c, 13, 50, 8, 3, 0.22);
+    c.lineCap = "round";
+    // piernas
+    c.strokeStyle = pants[j]; c.lineWidth = 4.4;
+    c.beginPath(); c.moveTo(10, 34); c.lineTo(9, 48); c.moveTo(16, 34); c.lineTo(17, 48); c.stroke();
+    // zapatos
+    c.strokeStyle = "#2a2a2e"; c.lineWidth = 3;
+    c.beginPath(); c.moveTo(8, 49); c.lineTo(10, 49); c.moveTo(16, 49); c.lineTo(18, 49); c.stroke();
+    // brazos
+    c.strokeStyle = shirts[i]; c.lineWidth = 4.2;
+    c.beginPath(); c.moveTo(8, 23); c.lineTo(4.5, 33); c.moveTo(18, 23); c.lineTo(21.5, 33); c.stroke();
+    // cuerpo / camiseta
+    c.fillStyle = shirts[i];
+    rrectPath(c, 6.5, 20, 13, 17, 4); c.fill();
+    // manos
+    c.fillStyle = skin;
+    c.beginPath(); c.arc(4.5, 34, 1.9, 0, TAU); c.arc(21.5, 34, 1.9, 0, TAU); c.fill();
+    // cabeza
+    c.beginPath(); c.arc(13, 12, 7, 0, TAU); c.fill();
+    // pelo
+    c.fillStyle = hairs[Math.floor(v * 11) % 4];
+    c.beginPath(); c.arc(13, 11, 7, Math.PI * 1.03, TAU - 0.03); c.fill();
+    c.fillRect(6.2, 8.5, 13.6, 3);
+    // ojos
+    c.fillStyle = "#2a2a2e";
+    c.beginPath(); c.arc(10.7, 13, 1, 0, TAU); c.arc(15.3, 13, 1, 0, TAU); c.fill();
+  });
+}
 function sprMountain(v){
   return getSprite("mtn" + Math.floor(v * 4), 280, 160, 140, 156, c => {
     const px = 100 + v * 40;
@@ -1537,6 +1618,34 @@ function sprStationHouse(){
   });
 }
 /* ---------------- terreno ---------------- */
+function strokeRiverPolyline(pts, w, vr, preview){
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  const path = new Path2D();
+  path.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++){
+    const a = pts[i - 1], b = pts[i];
+    path.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+  }
+  if (preview) ctx.globalAlpha = 0.7;
+  ctx.strokeStyle = "#5f9e53"; ctx.lineWidth = w + 14; ctx.stroke(path);   // orilla
+  ctx.strokeStyle = "#d9c9a0"; ctx.lineWidth = w + 6; ctx.stroke(path);    // arena
+  ctx.strokeStyle = "#63b7e6"; ctx.lineWidth = w; ctx.stroke(path);        // agua
+  ctx.strokeStyle = "#8fd0f0"; ctx.lineWidth = w * 0.55; ctx.stroke(path); // agua clara
+  // destellos que fluyen
+  ctx.fillStyle = "rgba(255,255,255,.8)";
+  const flow = (gameTime * 40) % 90;
+  for (let i = 1; i < pts.length; i++){
+    const a = pts[i - 1], b = pts[i];
+    for (let k = flow; k < 110; k += 90){
+      const t = k / 110;
+      const x = lerp(a[0], b[0], t) + Math.sin(i * 3 + gameTime) * 8;
+      const y = lerp(a[1], b[1], t);
+      if (vr && (x < vr.x0 || x > vr.x1 || y < vr.y0 || y > vr.y1)) continue;
+      ctx.fillRect(x - 4, y, 8, 2);
+    }
+  }
+  if (preview) ctx.globalAlpha = 1;
+}
 function drawTerrain(vr){
   // hierba base con gradiente
   const g = ctx.createLinearGradient(0, 0, 0, WORLD.h);
@@ -1590,31 +1699,14 @@ function drawTerrain(vr){
   }
   // río
   if (riverPath.length > 1){
-    ctx.lineCap = "round"; ctx.lineJoin = "round";
-    const path = new Path2D();
-    path.moveTo(riverPath[0][0], riverPath[0][1]);
-    for (let i = 1; i < riverPath.length; i++){
-      const a = riverPath[i - 1], b = riverPath[i];
-      path.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
-    }
-    ctx.strokeStyle = "#5f9e53"; ctx.lineWidth = RIVER_W + 14; ctx.stroke(path);   // orilla
-    ctx.strokeStyle = "#d9c9a0"; ctx.lineWidth = RIVER_W + 6; ctx.stroke(path);    // arena
-    ctx.strokeStyle = "#63b7e6"; ctx.lineWidth = RIVER_W; ctx.stroke(path);        // agua
-    ctx.strokeStyle = "#8fd0f0"; ctx.lineWidth = RIVER_W * 0.55; ctx.stroke(path); // agua clara
-    // destellos que fluyen
-    ctx.fillStyle = "rgba(255,255,255,.8)";
-    const flow = (gameTime * 40) % 90;
-    for (let i = 1; i < riverPath.length; i++){
-      const a = riverPath[i - 1], b = riverPath[i];
-      for (let k = flow; k < 110; k += 90){
-        const t = k / 110;
-        const x = lerp(a[0], b[0], t) + Math.sin(i * 3 + gameTime) * 8;
-        const y = lerp(a[1], b[1], t);
-        if (x < vr.x0 || x > vr.x1 || y < vr.y0 || y > vr.y1) continue;
-        ctx.fillRect(x - 4, y, 8, 2);
-      }
-    }
+    strokeRiverPolyline(riverPath, RIVER_W, vr);
   }
+  // ríos dibujados por el jugador
+  for (const rv of userRivers){
+    if (rv.length > 1) strokeRiverPolyline(rv, RIVER_W * 0.8, vr);
+  }
+  // río en construcción (vista previa)
+  if (riverDraw && riverDraw.length > 1) strokeRiverPolyline(riverDraw, RIVER_W * 0.8, vr, true);
   // flores (solo con zoom cercano)
   if (cam.z > 0.55){
     for (const d of decor){
@@ -1908,6 +2000,7 @@ function drawEntity(e){
       case "barn": s = sprBarn(); break;
       case "cow": s = sprCow(d.v); break;
       case "sheep": s = sprSheep(d.v); break;
+      case "person": s = sprPerson(d.v); break;
       case "mountain": s = sprMountain(d.v); break;
       case "footbridge": s = sprFootbridge(); break;
       case "windmill": drawWindmill(d); return;
@@ -1987,25 +2080,64 @@ function drawHill(h){
   // bocas de túnel
   for (const m of h.mouths){
     const [mx, my] = proj(m.x, m.y);
-    const rw = 17 * cam.z, rh = 21 * cam.z;
+    const rw = 21 * cam.z, rh = 27 * cam.z;
+    const lw = Math.max(1, cam.z);
     ctx.save();
     ctx.translate(mx, my - 6 * cam.z);
-    // portal de piedra
-    ctx.fillStyle = "#a8a091";
-    ctx.beginPath(); ctx.ellipse(0, 0, rw * 1.25, rh * 1.05, 0, Math.PI, 0, false); ctx.lineTo(rw * 1.25, 4 * cam.z); ctx.lineTo(-rw * 1.25, 4 * cam.z); ctx.closePath(); ctx.fill();
+    // apron rocoso (la montaña se abre en roca alrededor del portal)
+    ctx.fillStyle = "#8f8877";
+    ctx.beginPath(); ctx.ellipse(0, -rh * 0.15, rw * 1.7, rh * 1.5, 0, Math.PI, 0, false);
+    ctx.lineTo(rw * 1.7, 6 * cam.z); ctx.lineTo(-rw * 1.7, 6 * cam.z); ctx.closePath(); ctx.fill();
+    // manchas de roca
+    ctx.fillStyle = "rgba(90,84,72,.5)";
+    ctx.beginPath(); ctx.ellipse(-rw * 0.9, -rh * 0.7, rw * 0.5, rh * 0.4, 0.3, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(rw * 1.0, -rh * 0.5, rw * 0.45, rh * 0.5, -0.3, 0, TAU); ctx.fill();
+    // portal de piedra (anillo claro)
+    ctx.fillStyle = "#b8b0a0";
+    ctx.beginPath(); ctx.ellipse(0, 0, rw * 1.32, rh * 1.1, 0, Math.PI, 0, false); ctx.lineTo(rw * 1.32, 5 * cam.z); ctx.lineTo(-rw * 1.32, 5 * cam.z); ctx.closePath(); ctx.fill();
     // sombreado del portal (lado derecho)
-    ctx.fillStyle = "rgba(0,0,0,.14)";
-    ctx.beginPath(); ctx.ellipse(0, 0, rw * 1.25, rh * 1.05, 0, -0.5, 0, false); ctx.lineTo(rw * 1.25, 4 * cam.z); ctx.lineTo(rw * 0.6, 4 * cam.z); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "rgba(0,0,0,.16)";
+    ctx.beginPath(); ctx.ellipse(0, 0, rw * 1.32, rh * 1.1, 0, -0.55, 0, false); ctx.lineTo(rw * 1.32, 5 * cam.z); ctx.lineTo(rw * 0.6, 5 * cam.z); ctx.closePath(); ctx.fill();
+    // dovelas de piedra alrededor del arco
+    const nV = 11;
+    for (let i = 0; i <= nV; i++){
+      const a = Math.PI + (i / nV) * Math.PI;
+      const r0w = rw * 1.05, r0h = rh * 0.9, r1w = rw * 1.34, r1h = rh * 1.12;
+      const x0 = Math.cos(a) * r0w, y0 = Math.sin(a) * r0h;
+      const x1 = Math.cos(a) * r1w, y1 = Math.sin(a) * r1h;
+      const a2 = Math.PI + ((i + 1) / nV) * Math.PI;
+      const x0b = Math.cos(a2) * r0w, y0b = Math.sin(a2) * r0h;
+      const x1b = Math.cos(a2) * r1w, y1b = Math.sin(a2) * r1h;
+      ctx.fillStyle = i % 2 === 0 ? "#cfc7b6" : "#a49c8b";
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineTo(x1b, y1b); ctx.lineTo(x0b, y0b); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "rgba(70,64,54,.4)"; ctx.lineWidth = lw; ctx.stroke();
+    }
+    // clave (keystone) arriba
+    ctx.fillStyle = "#ddd5c2";
+    ctx.beginPath(); ctx.moveTo(-4 * cam.z, -rh * 1.02); ctx.lineTo(4 * cam.z, -rh * 1.02); ctx.lineTo(6 * cam.z, -rh * 1.28); ctx.lineTo(-6 * cam.z, -rh * 1.28); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "rgba(70,64,54,.5)"; ctx.lineWidth = lw; ctx.stroke();
     // hueco oscuro con degradado de profundidad
-    const tg = ctx.createLinearGradient(0, -rh, 0, 4 * cam.z);
-    tg.addColorStop(0, "#4a4038"); tg.addColorStop(0.5, "#2c2620"); tg.addColorStop(1, "#191510");
+    const tg = ctx.createRadialGradient(0, -rh * 0.35, rw * 0.1, 0, -rh * 0.2, rw * 0.95);
+    tg.addColorStop(0, "#171310"); tg.addColorStop(0.55, "#2c2620"); tg.addColorStop(1, "#3f382f");
     ctx.fillStyle = tg;
-    ctx.beginPath(); ctx.ellipse(0, 0, rw * 0.85, rh * 0.8, 0, Math.PI, 0, false); ctx.lineTo(rw * 0.85, 4 * cam.z); ctx.lineTo(-rw * 0.85, 4 * cam.z); ctx.closePath(); ctx.fill();
-    // dovelas
-    ctx.strokeStyle = "#7c7466"; ctx.lineWidth = Math.max(1, 2.6 * cam.z);
-    ctx.beginPath(); ctx.ellipse(0, 0, rw * 1.05, rh * 0.92, 0, Math.PI * 1.02, -0.02 * Math.PI, false); ctx.stroke();
-    ctx.strokeStyle = "rgba(255,255,255,.25)"; ctx.lineWidth = Math.max(1, 1.2 * cam.z);
-    ctx.beginPath(); ctx.ellipse(0, -1.5 * cam.z, rw * 1.12, rh * 0.98, 0, Math.PI * 1.1, Math.PI * 1.6, false); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0, 0, rw * 0.86, rh * 0.82, 0, Math.PI, 0, false); ctx.lineTo(rw * 0.86, 5 * cam.z); ctx.lineTo(-rw * 0.86, 5 * cam.z); ctx.closePath(); ctx.fill();
+    // rieles que se hunden en la oscuridad
+    ctx.strokeStyle = "rgba(120,120,130,.5)"; ctx.lineWidth = Math.max(1, 1.4 * cam.z);
+    for (const sgn of [-1, 1]){
+      ctx.beginPath();
+      ctx.moveTo(sgn * rw * 0.34, 5 * cam.z);
+      ctx.lineTo(sgn * rw * 0.08, -rh * 0.5);
+      ctx.stroke();
+    }
+    // brillo del borde interior (media luna de luz)
+    ctx.strokeStyle = "rgba(255,240,200,.35)"; ctx.lineWidth = Math.max(1, 1.4 * cam.z);
+    ctx.beginPath(); ctx.ellipse(0, -1.5 * cam.z, rw * 0.9, rh * 0.86, 0, Math.PI * 1.08, Math.PI * 1.62, false); ctx.stroke();
+    // hierba/escombros a los pies del portal
+    ctx.fillStyle = "rgba(70,120,55,.6)";
+    for (let i = 0; i < 4; i++){
+      const gx = (-1.1 + i * 0.72) * rw;
+      ctx.beginPath(); ctx.ellipse(gx, 4 * cam.z, 5 * cam.z, 2.4 * cam.z, 0, 0, TAU); ctx.fill();
+    }
     ctx.restore();
   }
 }
@@ -2488,6 +2620,7 @@ function enterCab(t){
   ui.cabSpeedRange.value = Math.round(t.slider * 100);
   syncCabStopBtn();
   if (buildMode) setBuildMode(false);
+  if (sceneryMode) setSceneryMode(false);
   achieve("maquinista");
   Snd.pop();
 }
@@ -2603,6 +2736,31 @@ function renderCab(dt){
     const y1 = yAt(f), y2 = yAt(f + 20);
     ctx.fillRect(0, y2, W, Math.max(1, y1 - y2));
   }
+  // ----- agua en el suelo (lagos y ríos) proyectada -----
+  {
+    const cH = Math.cos(h0), sH = Math.sin(h0);
+    const drawWaterDisc = (wx, wy, rw) => {
+      const dx = wx - hp.x, dy = wy - hp.y;
+      const f = dx * cH + dy * sH;
+      if (f < 14 || f > 640) return;
+      const l = -dx * sH + dy * cH;
+      if (Math.abs(l) > 1600) return;
+      const sc = persp(f);
+      const x = xAt(l, f), y = yAt(f);
+      const w = clamp(rw * KX * persp(f) * 0.9, 4, W * 1.6);
+      ctx.fillStyle = "#4f9bcf";
+      ctx.beginPath(); ctx.ellipse(x, y, w, w * 0.32, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = "#63b7e6";
+      ctx.beginPath(); ctx.ellipse(x, y - w * 0.03, w * 0.82, w * 0.24, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = "rgba(143,208,240,.85)";
+      ctx.beginPath(); ctx.ellipse(x - w * 0.15, y - w * 0.05, w * 0.5, w * 0.14, 0, 0, TAU); ctx.fill();
+    };
+    for (const d of decor){ if (d.type === "lake") drawWaterDisc(d.x, d.y, 120 * (d.s || 1)); }
+    const allRivers = [riverPath, ...userRivers];
+    for (const rv of allRivers){
+      for (let i = 0; i < rv.length; i++) drawWaterDisc(rv[i][0], rv[i][1], 34);
+    }
+  }
   // ----- vía -----
   const { pts, sws } = cabPathSamples(t, 640, 7);
   const rel = [];
@@ -2673,12 +2831,12 @@ function renderCab(dt){
   // ----- decorado lateral (billboards, lejos → cerca) -----
   const bills = [];
   for (const d of decor){
-    if (d.type === "flower" || d.type === "lake" || d.type === "mountain" || d.type === "footbridge") continue;
+    if (d.type === "flower" || d.type === "lake" || d.type === "footbridge") continue;
     const dx = d.x - hp.x, dy = d.y - hp.y;
     const f = dx * cosH + dy * sinH;
-    if (f < 6 || f > 560) continue;
+    if (f < 6 || f > (d.type === "mountain" ? 1600 : 560)) continue;
     const l = -dx * sinH + dy * cosH;
-    if (Math.abs(l) > 300) continue;
+    if (Math.abs(l) > (d.type === "mountain" ? 1400 : 300)) continue;
     bills.push({ f, l, d });
   }
   // otros trenes como billboards
@@ -2723,19 +2881,46 @@ function renderCab(dt){
       case "barn": s = sprBarn(); break;
       case "cow": s = sprCow(d.v); break;
       case "sheep": s = sprSheep(d.v); break;
+      case "person": s = sprPerson(d.v); break;
+      case "mountain": s = sprMountain(d.v); break;
       case "windmill": s = sprWindmillBody(); break;
     }
     if (!s) continue;
-    const wpx = s.wu * KX * 0.05 * sc * 3.4 * d.s;
+    const scl = d.type === "mountain" ? 1.4 : 3.4;
+    const wpx = s.wu * KX * 0.05 * sc * scl * d.s;
     const hpx = wpx * s.hu / s.wu;
     ctx.drawImage(s.cv, x - wpx * (s.ax / s.wu), y - hpx * (s.ay / s.hu), wpx, hpx);
   }
-  // dentro de un túnel: oscurecer
+  // dentro de un túnel: paredes de piedra + luz al fondo
   if (pointInAnyHill(hp.x, hp.y, 0.94)){
-    ctx.fillStyle = "rgba(20,16,12,.78)";
+    // oscuridad general
+    ctx.fillStyle = "rgba(14,11,9,.82)";
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = "rgba(255,240,190,.2)";
-    ctx.beginPath(); ctx.ellipse(W / 2, horizonY, W * 0.1, H * 0.08, 0, 0, TAU); ctx.fill();
+    // arco/paredes de piedra del túnel (marco que enmarca la vista)
+    const archW = W * 0.34, archTop = H * 0.06, archBot = H * 0.98;
+    ctx.fillStyle = "#2a251f";
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(W, 0); ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+    ctx.moveTo(W / 2 - archW, archBot);
+    ctx.lineTo(W / 2 - archW, archTop + H * 0.18);
+    ctx.quadraticCurveTo(W / 2 - archW, archTop, W / 2, archTop);
+    ctx.quadraticCurveTo(W / 2 + archW, archTop, W / 2 + archW, archTop + H * 0.18);
+    ctx.lineTo(W / 2 + archW, archBot);
+    ctx.closePath();
+    ctx.fill("evenodd");
+    // dovelas del arco interior
+    ctx.strokeStyle = "rgba(120,110,95,.5)"; ctx.lineWidth = 3;
+    for (let i = 0; i <= 10; i++){
+      const a = Math.PI + (i / 10) * Math.PI;
+      const x = W / 2 + Math.cos(a) * archW, y = (archTop + H * 0.5) + Math.sin(a) * (H * 0.44);
+      if (i === 0) { ctx.beginPath(); ctx.moveTo(x, y); } else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    // luz al fondo del túnel
+    const lg = ctx.createRadialGradient(W / 2, horizonY, 4, W / 2, horizonY, W * 0.16);
+    lg.addColorStop(0, "rgba(255,244,200,.55)"); lg.addColorStop(1, "rgba(255,244,200,0)");
+    ctx.fillStyle = lg;
+    ctx.beginPath(); ctx.ellipse(W / 2, horizonY, W * 0.16, H * 0.13, 0, 0, TAU); ctx.fill();
   }
   // ----- flechas de agujas próximas (tocables) -----
   cabSwitchHits = [];
@@ -2886,6 +3071,7 @@ let joinFrom = null;        // primer extremo elegido en la herramienta "unir"
 function setBuildMode(on){
   buildMode = on;
   buildTool = "track";
+  if (on && sceneryMode) setSceneryMode(false);
   ui.buildPanel.classList.toggle("show", on);
   ui.buildBand.classList.toggle("show", on);
   ui.buildHint.classList.toggle("show", on);
@@ -2917,6 +3103,106 @@ function updateToolButtons(){
   ui.toolJoin.classList.toggle("on", buildTool === "join");
   ui.toolErase.classList.toggle("on", buildTool === "erase");
   ui.toolStation.classList.toggle("on", buildTool === "station");
+}
+/* ============================================================
+   MODO PAISAJE — colocar árboles, casas, animales, lagos, montañas,
+   ríos (arrastrando) y personas; goma para borrar lo colocado.
+   ============================================================ */
+const SCENERY_HINTS = {
+  tree: "Toca para plantar un árbol 🌳",
+  pine: "Toca para plantar un pino 🌲",
+  house: "Toca para poner una casa 🏠",
+  cow: "Toca para poner una vaca 🐄",
+  sheep: "Toca para poner una oveja 🐑",
+  person: "Toca para poner una persona 🚶",
+  lake: "Toca para crear un lago 🏞️",
+  mountain: "Toca para poner una montaña ⛰️",
+  river: "Arrastra para dibujar un río 🌊",
+  erase: "Toca lo que hayas puesto para borrarlo 🧽"
+};
+function setSceneryMode(on){
+  sceneryMode = on;
+  sceneryTool = "tree";
+  if (on && buildMode) setBuildMode(false);
+  ui.sceneryPanel.classList.toggle("show", on);
+  ui.sceneryBand.classList.toggle("show", on);
+  ui.buildHint.classList.toggle("show", on);
+  ui.btnScenery.classList.toggle("on", on);
+  ui.colorPicker.classList.remove("show");
+  updateSceneryButtons();
+  if (on){
+    selectTrain(null);
+    ui.buildHint.textContent = SCENERY_HINTS[sceneryTool];
+  }
+  riverDraw = null;
+  Snd.pop();
+  saveSoon();
+}
+function setSceneryTool(tool){
+  sceneryTool = tool;
+  riverDraw = null;
+  updateSceneryButtons();
+  ui.buildHint.textContent = SCENERY_HINTS[tool] || "";
+  Snd.pop();
+}
+function updateSceneryButtons(){
+  const map = { scTree:"tree", scPine:"pine", scHouse:"house", scCow:"cow", scSheep:"sheep",
+    scPerson:"person", scLake:"lake", scMountain:"mountain", scRiver:"river", scErase:"erase" };
+  for (const id in map) ui[id].classList.toggle("on", sceneryTool === map[id]);
+}
+// escala visual por defecto de cada tipo de decorado colocado
+function defaultDecorScale(type){
+  switch (type){
+    case "mountain": return 1.0;
+    case "house": return 1.0;
+    case "lake": return 1.0;
+    case "tree": case "pine": return 1.0;
+    case "cow": case "sheep": return 1.0;
+    case "person": return 1.0;
+    default: return 1;
+  }
+}
+function placeSceneryAt(wx, wy){
+  if (wx < 30 || wy < 30 || wx > WORLD.w - 30 || wy > WORLD.h - 30){ Snd.deny(); return; }
+  const type = sceneryTool;
+  const rngV = Math.random();
+  const item = { type, x: wx, y: wy, v: rngV, s: defaultDecorScale(type), user: 1 };
+  userDecor.push(item);
+  decor.push(item);
+  for (let i = 0; i < 5; i++) spawnSteam(wx + rand(-8, 8), wy + rand(-6, 6));
+  Snd.pop();
+  saveSoon();
+}
+function eraseSceneryAt(wx, wy){
+  // borra el decorado del jugador más cercano dentro de tolerancia
+  let best = -1, bd = Infinity;
+  for (let i = 0; i < userDecor.length; i++){
+    const d = userDecor[i];
+    const tol = (d.type === "mountain" || d.type === "lake") ? 130 : 46;
+    const dd = dist2(wx, wy, d.x, d.y);
+    if (dd < tol * tol && dd < bd){ bd = dd; best = i; }
+  }
+  if (best >= 0){
+    const it = userDecor[best];
+    userDecor.splice(best, 1);
+    const di = decor.indexOf(it);
+    if (di >= 0) decor.splice(di, 1);
+    for (let i = 0; i < 5; i++) spawnSteam(it.x + rand(-8, 8), it.y + rand(-6, 6));
+    Snd.pop();
+    saveSoon();
+    return;
+  }
+  // si no hay decorado, intenta borrar un río cercano
+  let bestR = -1, bdr = Infinity;
+  for (let i = 0; i < userRivers.length; i++){
+    const d = distToPolyline(wx, wy, userRivers[i]);
+    if (d < 40 && d < bdr){ bdr = d; bestR = i; }
+  }
+  if (bestR >= 0){
+    userRivers.splice(bestR, 1);
+    Snd.pop();
+    saveSoon();
+  } else Snd.deny();
 }
 function quantAngle(a){ return Math.round(a / (Math.PI / 4)) * (Math.PI / 4); }
 /* validez de una pieza candidata (muestrea y comprueba distancias) */
@@ -3296,7 +3582,12 @@ function onPointerDown(e){
     gesture = { type: "build", sx0: sx, sy0: sy };
     return;
   }
-  const t = !buildMode ? trainAt(wx, wy) : null;
+  if (sceneryMode && sceneryTool === "river"){
+    riverDraw = [[wx, wy]];
+    gesture = { type: "river", sx0: sx, sy0: sy };
+    return;
+  }
+  const t = (!buildMode && !sceneryMode) ? trainAt(wx, wy) : null;
   if (t){
     gesture = { type: "trainpress", train: t, sx0: sx, sy0: sy, moved: false };
     clearTimeout(longPressTimer);
@@ -3335,6 +3626,13 @@ function onPointerMove(e){
   if (!gesture) return;
   const [wx, wy] = unproj(sx, sy);
   if (gesture.type === "build"){ buildPointerMove(wx, wy); return; }
+  if (gesture.type === "river"){
+    if (riverDraw){
+      const last = riverDraw[riverDraw.length - 1];
+      if (dist(wx, wy, last[0], last[1]) > 22) riverDraw.push([wx, wy]);
+    }
+    return;
+  }
   if (gesture.type === "dragtrain"){
     dragGhost.x = wx; dragGhost.y = wy;
     dragGhost.ok = !!nearestTrackPoint(wx, wy, 70);
@@ -3376,6 +3674,17 @@ function onPointerUp(e){
   const g = gesture;
   gesture = null;
   if (g.type === "build"){ buildPointerUp(wx, wy); return; }
+  if (g.type === "river"){
+    if (riverDraw && riverDraw.length >= 2){
+      userRivers.push(riverDraw);
+      for (const pt of riverDraw) if (Math.random() < 0.25) spawnSteam(pt[0] + rand(-8, 8), pt[1] + rand(-6, 6));
+      Snd.pop();
+      toastMsg("🌊", "¡Río dibujado!");
+      saveSoon();
+    }
+    riverDraw = null;
+    return;
+  }
   if (g.type === "dragtrain"){
     const ok = relocateTrain(g.train, wx, wy);
     if (ok){ Snd.pop(); for (let i = 0; i < 6; i++) spawnSteam(wx + rand(-10, 10), wy + rand(-8, 8)); }
@@ -3388,6 +3697,12 @@ function onPointerUp(e){
   handleTap(sx, sy, wx, wy);
 }
 function handleTap(sx, sy, wx, wy){
+  if (sceneryMode){
+    if (sceneryTool === "erase"){ eraseSceneryAt(wx, wy); return; }
+    if (sceneryTool === "river"){ return; }
+    placeSceneryAt(wx, wy);
+    return;
+  }
   if (buildMode){
     if (buildTool === "erase"){ eraseAt(wx, wy); return; }
     if (buildTool === "station"){ stationAt(wx, wy); return; }
@@ -3642,8 +3957,9 @@ function setupHold(btn, ms, cb){
 }
 /* ---------------- inicialización de la UI ---------------- */
 function initUI(){
-  const ids = ["medalIcon","medalTime","btnSound","btnFull","btnSettings","bottomBar","btnNewTrain","btnBuild",
+  const ids = ["medalIcon","medalTime","btnSound","btnFull","btnSettings","bottomBar","btnNewTrain","btnBuild","btnScenery",
     "colorPicker","buildPanel","toolTrack","toolJoin","toolErase","toolStation","btnBuildDone","buildBand","buildHint",
+    "sceneryPanel","sceneryBand","scTree","scPine","scHouse","scCow","scSheep","scPerson","scLake","scMountain","scRiver","scErase","btnSceneryDone",
     "trainPanel","tpName","tpPlay","tpReverse","tpFollow","tpCab","tpSpeed","tpAddWagon","tpDelWagon","tpDelete",
     "cabUI","btnBackMap","btnHorn","cabSpeedRange","btnCabStop","settingsPanel","stTutorial","stReset",
     "toast","toastText","bubble","bubbleText","bubbleSkip","hand","topLeft","topRight"];
@@ -3662,6 +3978,7 @@ function initUI(){
   });
   ui.btnNewTrain.addEventListener("click", () => {
     if (buildMode) setBuildMode(false);
+    if (sceneryMode) setSceneryMode(false);
     ui.colorPicker.classList.toggle("show");
     ui.settingsPanel.classList.remove("show");
     Snd.pop();
@@ -3672,6 +3989,19 @@ function initUI(){
   ui.toolJoin.addEventListener("click", () => setBuildTool("join"));
   ui.toolErase.addEventListener("click", () => setBuildTool("erase"));
   ui.toolStation.addEventListener("click", () => setBuildTool("station"));
+  // panel de paisaje
+  ui.btnScenery.addEventListener("click", () => setSceneryMode(!sceneryMode));
+  ui.btnSceneryDone.addEventListener("click", () => setSceneryMode(false));
+  ui.scTree.addEventListener("click", () => setSceneryTool("tree"));
+  ui.scPine.addEventListener("click", () => setSceneryTool("pine"));
+  ui.scHouse.addEventListener("click", () => setSceneryTool("house"));
+  ui.scCow.addEventListener("click", () => setSceneryTool("cow"));
+  ui.scSheep.addEventListener("click", () => setSceneryTool("sheep"));
+  ui.scPerson.addEventListener("click", () => setSceneryTool("person"));
+  ui.scLake.addEventListener("click", () => setSceneryTool("lake"));
+  ui.scMountain.addEventListener("click", () => setSceneryTool("mountain"));
+  ui.scRiver.addEventListener("click", () => setSceneryTool("river"));
+  ui.scErase.addEventListener("click", () => setSceneryTool("erase"));
   // panel de tren
   ui.tpPlay.addEventListener("click", () => { if (selectedTrain) toggleRun(selectedTrain); });
   ui.tpReverse.addEventListener("click", () => {
@@ -3803,7 +4133,9 @@ function serialize(){
     obDone: onboarding.done,
     muted: Snd.muted,
     cam: { x: Math.round(cam.x), y: Math.round(cam.y), z: +cam.z.toFixed(2) },
-    buildCount
+    buildCount,
+    userDecor: userDecor.map(d => [d.type, Math.round(d.x), Math.round(d.y), +(+d.v).toFixed(3), +(+d.s).toFixed(2)]),
+    userRivers: userRivers.map(rv => rv.map(p => [Math.round(p[0]), Math.round(p[1])]))
   };
 }
 function saveGame(){
@@ -3865,6 +4197,25 @@ function deserialize(d){
   onboarding.done = !!d.obDone;
   Snd.muted = !!d.muted;
   buildCount = d.buildCount || 0;
+  // decoración y ríos del jugador
+  userDecor = [];
+  const OKTYPES = { tree:1, pine:1, house:1, cow:1, sheep:1, person:1, lake:1, mountain:1, bush:1 };
+  if (Array.isArray(d.userDecor)){
+    for (const it of d.userDecor){
+      if (!Array.isArray(it) || it.length < 5) continue;
+      const [type, x, y, v, s] = it;
+      if (!OKTYPES[type]) continue;
+      userDecor.push({ type, x: +x, y: +y, v: +v, s: +s || 1, user: 1 });
+    }
+  }
+  userRivers = [];
+  if (Array.isArray(d.userRivers)){
+    for (const rv of d.userRivers){
+      if (Array.isArray(rv) && rv.length > 1){
+        userRivers.push(rv.filter(p => Array.isArray(p) && p.length >= 2).map(p => [+p[0], +p[1]]));
+      }
+    }
+  }
   if (d.cam){
     cam.x = clamp(d.cam.x, -250, WORLD.w + 250);
     cam.y = clamp(d.cam.y, -250, WORLD.h + 250);
