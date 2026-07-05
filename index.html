@@ -217,6 +217,8 @@
   }
   #settingsPanel.show{ display:flex; }
   #settingsPanel .btn{ font-size:17px; justify-content:flex-start; }
+  #stTimeAuto.on{ background:#cde7c4; border-color:#7bb86a; }
+  #stTime{ accent-color:#e08b1d; height:26px; }
   .holdBtn{ position:relative; overflow:hidden; }
   .holdBtn .fill{
     position:absolute; left:0; top:0; bottom:0; width:0%;
@@ -345,6 +347,9 @@
 </div>
 
 <div id="settingsPanel">
+  <div id="stTimeLabel" style="font-weight:900;text-align:center;font-size:15px;">🕘 09:00 · Día ☀️</div>
+  <input type="range" id="stTime" min="0" max="1439" step="5" value="540" style="width:100%;">
+  <button class="btn" id="stTimeAuto">⏱️ <span class="lbl">Hora automática ✓</span></button>
   <button class="btn" id="stTutorial">💬 <span class="lbl">Ver tutorial</span></button>
   <button class="btn danger holdBtn" id="stReset">🧹 <span class="lbl">Empezar de nuevo (mantén)</span><div class="fill"></div></button>
   <div style="text-align:center;font-size:12px;opacity:.7;">Tren Mágico v1 · hecho con ❤️</div>
@@ -400,7 +405,7 @@ let nodes = new Map(), segs = new Map(), stationsMap = new Map(), switches = new
 let nid = 1, sid = 1, stationId = 1, trainId = 1;
 let trains = [];
 let particles = [], screenParticles = [];
-let decor = [], hills = [], clouds = [], birds = [];
+let decor = [], hills = [], clouds = [], birds = [], stars = [];
 let riverPath = [];              // polilínea del río
 const RIVER_W = 64;
 let cam = { x: 1050, y: 800, z: 0.9, follow: 0, zoomAnim: null };
@@ -876,6 +881,11 @@ function buildTerrain(){
   clouds = [];
   for (let i = 0; i < 14; i++){
     clouds.push({ x: rng()*WORLD.w, y: rng()*WORLD.h*0.9, v: 4 + rng()*7, s: 0.7 + rng()*0.9 });
+  }
+  // estrellas (coordenadas normalizadas de pantalla, para la noche)
+  stars = [];
+  for (let i = 0; i < 110; i++){
+    stars.push({ x: rng(), y: rng() * 0.9, s: 0.5 + rng() * 1.6, tw: rng() * TAU });
   }
 }
 function buildScenery(){
@@ -2582,6 +2592,99 @@ function drawClouds(){
     ctx.stroke();
   }
 }
+/* ============================================================
+   CICLO DÍA / NOCHE — 24 h ≈ 10 min reales. Un tinte de luz
+   ambiental (multiply) tiñe toda la escena de forma uniforme.
+   ============================================================ */
+const DAY_LEN = 600;              // segundos reales por día completo
+const DAY_START_HOUR = 9;         // el juego empieza a media mañana
+let timeAuto = true;              // true: la hora avanza sola; false: hora fija
+let timeManualHour = DAY_START_HOUR; // hora fijada por el usuario (0..24)
+// keyframes: [hora, r, g, b] del color de luz ambiente (tinte multiplicativo)
+const DAY_KEYS = [
+  [0,  40, 52, 105],   // noche cerrada
+  [5,  64, 74, 130],   // preamanecer
+  [6,  228, 150, 118], // amanecer cálido
+  [7,  255, 224, 198],
+  [9,  255, 255, 255], // día pleno
+  [16, 255, 255, 255],
+  [18, 255, 208, 158], // hora dorada
+  [19, 238, 138, 104], // atardecer
+  [20, 122, 92, 134],  // crepúsculo púrpura
+  [21, 54, 64, 122],   // anochecer
+  [24, 40, 52, 105]
+];
+function dayInfo(){
+  const hour = timeAuto ? (((gameTime / DAY_LEN) * 24 + DAY_START_HOUR) % 24) : timeManualHour;
+  let a = DAY_KEYS[0], b = DAY_KEYS[DAY_KEYS.length - 1];
+  for (let i = 0; i < DAY_KEYS.length - 1; i++){
+    if (hour >= DAY_KEYS[i][0] && hour <= DAY_KEYS[i + 1][0]){ a = DAY_KEYS[i]; b = DAY_KEYS[i + 1]; break; }
+  }
+  const t = (hour - a[0]) / Math.max(0.0001, b[0] - a[0]);
+  const r = lerp(a[1], b[1], t), g = lerp(a[2], b[2], t), bl = lerp(a[3], b[3], t);
+  const lum = (r + g + bl) / 3;
+  const night = clamp((205 - lum) / 150, 0, 1);   // 0 día → 1 noche
+  const day = clamp((lum - 150) / 105, 0, 1);      // 1 día → 0 noche
+  return { hour, r, g, b: bl, night, day, lum };
+}
+// aplica el tinte de luz sobre todo lo dibujado (multiply). Devuelve dayInfo.
+function applyDaylight(){
+  const d = dayInfo();
+  if (d.r < 252 || d.g < 252 || d.b < 252){
+    ctx.save();
+    ctx.globalCompositeOperation = "multiply";
+    ctx.fillStyle = `rgb(${Math.round(d.r)},${Math.round(d.g)},${Math.round(d.b)})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+  return d;
+}
+function drawStars(alpha, skyBottom){
+  if (alpha <= 0.02) return;
+  for (const st of stars){
+    const x = st.x * W, y = st.y * skyBottom;
+    const tw = 0.45 + 0.55 * Math.sin(gameTime * 1.8 + st.tw);
+    ctx.fillStyle = `rgba(255,255,246,${alpha * (0.3 + 0.7 * tw)})`;
+    ctx.beginPath(); ctx.arc(x, y, st.s, 0, TAU); ctx.fill();
+  }
+}
+function drawMoon(x, y, r, alpha){
+  if (alpha <= 0.02) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  const g = ctx.createRadialGradient(x, y, r * 0.2, x, y, r * 2.4);
+  g.addColorStop(0, "rgba(226,234,255,.5)"); g.addColorStop(1, "rgba(226,234,255,0)");
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 2.4, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#eef2ff"; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+  ctx.fillStyle = "rgba(190,200,228,.55)";
+  ctx.beginPath(); ctx.arc(x - r * 0.32, y - r * 0.18, r * 0.22, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + r * 0.26, y + r * 0.3, r * 0.15, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + r * 0.12, y - r * 0.36, r * 0.11, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+// ---- control de hora en Ajustes ----
+function fmtHour(hour){
+  const hh = Math.floor(hour) % 24;
+  const mm = Math.floor((hour - Math.floor(hour)) * 60);
+  return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
+}
+function phaseName(hour){
+  if (hour < 5 || hour >= 21) return "Noche 🌙";
+  if (hour < 7) return "Amanecer 🌅";
+  if (hour < 18) return "Día ☀️";
+  if (hour < 20) return "Atardecer 🌇";
+  return "Anochecer 🌆";
+}
+function updateTimeUI(){
+  if (!ui || !ui.stTime) return;
+  const hour = dayInfo().hour;
+  if (document.activeElement !== ui.stTime){
+    ui.stTime.value = Math.round((timeAuto ? hour : timeManualHour) * 60);
+  }
+  ui.stTimeLabel.textContent = fmtHour(hour) + " · " + phaseName(hour);
+  ui.stTimeAuto.classList.toggle("on", timeAuto);
+  ui.stTimeAuto.querySelector(".lbl").textContent = timeAuto ? "Hora automática ✓" : "Hora fija";
+}
 /* ---------------- frame aéreo completo ---------------- */
 function renderAerial(){
   screenTransform();
@@ -2606,17 +2709,24 @@ function renderAerial(){
   drawParticles();
   drawTrainOverlays();
   drawClouds();
-  // sol fijo con brillo
+  // tinte de luz ambiente (día/atardecer/noche) sobre toda la escena
   screenTransform();
+  const dl = applyDaylight();
+  // sol o luna en la esquina, según la hora
   const sunX = W - 90, sunY = 78;
-  const sg = ctx.createRadialGradient(sunX, sunY, 4, sunX, sunY, 55);
-  sg.addColorStop(0, "rgba(255,240,150,.9)");
-  sg.addColorStop(0.4, "rgba(255,220,90,.45)");
-  sg.addColorStop(1, "rgba(255,220,90,0)");
-  ctx.fillStyle = sg;
-  ctx.beginPath(); ctx.arc(sunX, sunY, 55, 0, TAU); ctx.fill();
-  ctx.fillStyle = "#ffe27a";
-  ctx.beginPath(); ctx.arc(sunX, sunY, 20, 0, TAU); ctx.fill();
+  if (dl.day > 0.02){
+    ctx.save(); ctx.globalAlpha = dl.day;
+    const sg = ctx.createRadialGradient(sunX, sunY, 4, sunX, sunY, 55);
+    sg.addColorStop(0, "rgba(255,240,150,.9)");
+    sg.addColorStop(0.4, "rgba(255,220,90,.45)");
+    sg.addColorStop(1, "rgba(255,220,90,0)");
+    ctx.fillStyle = sg;
+    ctx.beginPath(); ctx.arc(sunX, sunY, 55, 0, TAU); ctx.fill();
+    ctx.fillStyle = "#ffe27a";
+    ctx.beginPath(); ctx.arc(sunX, sunY, 20, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+  drawMoon(sunX, sunY, 22, dl.night);
 }
 /* ============================================================
    VISTA MAQUINISTA — pseudo-3D estilo "corridor" con parallax
@@ -2694,17 +2804,22 @@ function renderCab(dt){
   const persp = f => D0 / (D0 + f);
   const yAt = f => horizonY + (bottomY - horizonY) * persp(f);
   const xAt = (l, f) => W / 2 + l * KX * persp(f);
+  const dl = dayInfo();
   // ----- cielo -----
   const sky = ctx.createLinearGradient(0, 0, 0, horizonY);
   sky.addColorStop(0, "#69b7f0"); sky.addColorStop(1, "#cdeaff");
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, W, horizonY);
-  // sol
+  // sol (se desvanece al anochecer)
   const sunX = ((-h0 / TAU) * W * 2.5 % (W * 2.5) + W * 2.5) % (W * 2.5) - W * 0.5;
-  ctx.fillStyle = "rgba(255,235,140,.95)";
-  ctx.beginPath(); ctx.arc(sunX, horizonY * 0.35, 26, 0, TAU); ctx.fill();
-  ctx.fillStyle = "rgba(255,235,140,.25)";
-  ctx.beginPath(); ctx.arc(sunX, horizonY * 0.35, 48, 0, TAU); ctx.fill();
+  if (dl.day > 0.02){
+    ctx.save(); ctx.globalAlpha = dl.day;
+    ctx.fillStyle = "rgba(255,235,140,.95)";
+    ctx.beginPath(); ctx.arc(sunX, horizonY * 0.35, 26, 0, TAU); ctx.fill();
+    ctx.fillStyle = "rgba(255,235,140,.25)";
+    ctx.beginPath(); ctx.arc(sunX, horizonY * 0.35, 48, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
   // nubes parallax
   for (let i = 0; i < clouds.length; i++){
     const c = clouds[i];
@@ -3012,6 +3127,14 @@ function renderCab(dt){
     const wpx = s.wu * KX * 0.05 * sc * scl * d.s;
     const hpx = wpx * s.hu / s.wu;
     ctx.drawImage(s.cv, x - wpx * (s.ax / s.wu), y - hpx * (s.ay / s.hu), wpx, hpx);
+  }
+  // tinte de luz ambiente (atardecer / noche) sobre cielo + paisaje
+  applyDaylight();
+  // estrellas y luna (visibles al anochecer, sobre el tinte para que brillen)
+  if (dl.night > 0.02){
+    drawStars(dl.night, horizonY * 0.96);
+    const moonX = (((-h0 / TAU) * W * 2.5 + W * 1.25) % (W * 2.5) + W * 2.5) % (W * 2.5) - W * 0.5;
+    drawMoon(moonX, horizonY * 0.3, 22, dl.night);
   }
   // dentro de un túnel: paredes de piedra + luz al fondo
   if (pointInAnyHill(hp.x, hp.y, 0.94)){
@@ -4083,7 +4206,7 @@ function initUI(){
     "colorPicker","buildPanel","toolTrack","toolJoin","toolErase","toolStation","btnBuildDone","buildBand","buildHint",
     "sceneryPanel","sceneryBand","scTree","scPine","scHouse","scCow","scSheep","scPerson","scLake","scMountain","scRiver","scErase","btnSceneryDone",
     "trainPanel","tpName","tpPlay","tpReverse","tpFollow","tpCab","tpSpeed","tpAddWagon","tpDelWagon","tpDelete",
-    "cabUI","btnBackMap","btnHorn","cabSpeedRange","btnCabStop","settingsPanel","stTutorial","stReset",
+    "cabUI","btnBackMap","btnHorn","cabSpeedRange","btnCabStop","settingsPanel","stTutorial","stReset","stTime","stTimeLabel","stTimeAuto",
     "toast","toastText","bubble","bubbleText","bubbleSkip","hand","topLeft","topRight"];
   for (const id of ids) ui[id] = document.getElementById(id);
   // selector de color de tren
@@ -4201,7 +4324,22 @@ function initUI(){
   ui.btnSettings.addEventListener("click", () => {
     ui.settingsPanel.classList.toggle("show");
     ui.colorPicker.classList.remove("show");
+    updateTimeUI();
     Snd.pop();
+  });
+  // control de hora del día
+  ui.stTime.addEventListener("input", () => {
+    timeAuto = false;
+    timeManualHour = clamp(+ui.stTime.value / 60, 0, 24);
+    updateTimeUI();
+    saveSoon();
+  });
+  ui.stTimeAuto.addEventListener("click", () => {
+    timeAuto = !timeAuto;
+    if (!timeAuto) timeManualHour = clamp(+ui.stTime.value / 60, 0, 24);
+    updateTimeUI();
+    Snd.pop();
+    saveSoon();
   });
   ui.stTutorial.addEventListener("click", () => {
     ui.settingsPanel.classList.remove("show");
@@ -4256,6 +4394,7 @@ function serialize(){
     muted: Snd.muted,
     cam: { x: Math.round(cam.x), y: Math.round(cam.y), z: +cam.z.toFixed(2) },
     buildCount,
+    timeAuto, timeManualHour: +timeManualHour.toFixed(3),
     userDecor: userDecor.map(d => [d.type, Math.round(d.x), Math.round(d.y), +(+d.v).toFixed(3), +(+d.s).toFixed(2)]),
     userRivers: userRivers.map(rv => rv.map(p => [Math.round(p[0]), Math.round(p[1])]))
   };
@@ -4319,6 +4458,8 @@ function deserialize(d){
   onboarding.done = !!d.obDone;
   Snd.muted = !!d.muted;
   buildCount = d.buildCount || 0;
+  timeAuto = d.timeAuto !== undefined ? !!d.timeAuto : true;
+  timeManualHour = clamp(+d.timeManualHour || DAY_START_HOUR, 0, 24);
   // decoración y ríos del jugador
   userDecor = [];
   const OKTYPES = { tree:1, pine:1, house:1, cow:1, sheep:1, person:1, lake:1, mountain:1, bush:1 };
@@ -4373,6 +4514,7 @@ function update(dt){
   if (medalTime >= 300) achieve("seguro");
   medalUiT -= dt;
   if (medalUiT <= 0){ medalUiT = 0.25; updateMedalUI(); }
+  if (ui.settingsPanel.classList.contains("show")) updateTimeUI();
   positionTrainPanel();
   onboardingTick();
   saveTimer -= dt;
