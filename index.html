@@ -2044,39 +2044,52 @@ function drawHill(h){
   const rx = h.rx * cam.z, ry = h.ry * cam.z * SQ * 1.55;
   const domeCy = sy - ry * 0.42;
   // sombra de contacto (hacia abajo-izquierda)
-  ctx.fillStyle = "rgba(25,50,20,.20)";
-  ctx.beginPath(); ctx.ellipse(sx - rx * 0.06, sy + ry * 0.30, rx * 1.02, ry * 0.42, 0, 0, TAU); ctx.fill();
-  // falda de la colina (base más ancha y oscura)
-  ctx.fillStyle = "#639b4e";
-  ctx.beginPath(); ctx.ellipse(sx, sy + ry * 0.06, rx * 1.04, ry * 0.62, 0, 0, TAU); ctx.fill();
-  // cúpula con luz arriba-izquierda
+  ctx.fillStyle = "rgba(30,40,50,.22)";
+  ctx.beginPath(); ctx.ellipse(sx - rx * 0.06, sy + ry * 0.30, rx * 1.05, ry * 0.44, 0, 0, TAU); ctx.fill();
+  // falda rocosa (base más ancha)
+  ctx.fillStyle = "#6d675f";
+  ctx.beginPath(); ctx.ellipse(sx, sy + ry * 0.06, rx * 1.06, ry * 0.66, 0, 0, TAU); ctx.fill();
+  // cuerpo de roca con luz arriba-izquierda
   const g = ctx.createRadialGradient(sx - rx * 0.34, domeCy - ry * 0.55, rx * 0.08, sx, domeCy, rx * 1.05);
-  g.addColorStop(0, "#bce8a0");
-  g.addColorStop(0.45, "#93cc74");
-  g.addColorStop(0.8, "#6fae57");
-  g.addColorStop(1, "#578f44");
+  g.addColorStop(0, "#c2bcb2");
+  g.addColorStop(0.42, "#9a938a");
+  g.addColorStop(0.78, "#72695f");
+  g.addColorStop(1, "#544c44");
   ctx.fillStyle = g;
   ctx.beginPath(); ctx.ellipse(sx, domeCy, rx, ry * 1.08, 0, 0, TAU); ctx.fill();
-  // terminator: sombra propia en el lado derecho-inferior
-  ctx.fillStyle = "rgba(45,85,40,.30)";
+  // facetas de roca (crestas) para dar volumen pétreo
+  ctx.strokeStyle = "rgba(60,52,44,.4)"; ctx.lineWidth = Math.max(1, 1.6 * cam.z);
   ctx.beginPath();
-  ctx.ellipse(sx + rx * 0.18, domeCy + ry * 0.28, rx * 0.86, ry * 0.82, 0.12, -0.5, Math.PI + 0.6);
+  ctx.moveTo(sx - rx * 0.1, domeCy - ry * 0.7); ctx.lineTo(sx - rx * 0.5, domeCy + ry * 0.7);
+  ctx.moveTo(sx - rx * 0.1, domeCy - ry * 0.7); ctx.lineTo(sx + rx * 0.25, domeCy + ry * 0.75);
+  ctx.moveTo(sx + rx * 0.3, domeCy - ry * 0.2); ctx.lineTo(sx + rx * 0.6, domeCy + ry * 0.6);
+  ctx.stroke();
+  // terminator: sombra propia en el lado derecho-inferior
+  ctx.fillStyle = "rgba(45,38,30,.28)";
+  ctx.beginPath();
+  ctx.ellipse(sx + rx * 0.2, domeCy + ry * 0.26, rx * 0.84, ry * 0.82, 0.12, -0.5, Math.PI + 0.6);
   ctx.fill();
-  // línea de rasante (contacto cúpula-falda)
-  ctx.strokeStyle = "rgba(60,100,50,.45)";
-  ctx.lineWidth = Math.max(1, 2 * cam.z);
-  ctx.beginPath(); ctx.ellipse(sx, domeCy, rx, ry * 1.08, 0, 0.2 * Math.PI, 0.8 * Math.PI); ctx.stroke();
-  // brillo superior
-  ctx.strokeStyle = "rgba(255,255,230,.35)";
-  ctx.lineWidth = Math.max(1, 3 * cam.z);
-  ctx.beginPath(); ctx.ellipse(sx - rx * 0.12, domeCy - ry * 0.28, rx * 0.62, ry * 0.55, -0.15, Math.PI * 1.15, Math.PI * 1.75); ctx.stroke();
-  // matas de hierba
-  ctx.fillStyle = "rgba(70,120,55,.5)";
-  for (let i = 0; i < 5; i++){
-    const a = i * 1.7 + 0.5;
-    const gx = sx + Math.cos(a) * rx * 0.5, gy = domeCy + Math.sin(a) * ry * 0.45;
-    ctx.beginPath(); ctx.ellipse(gx, gy, 5 * cam.z, 2.2 * cam.z, 0, 0, TAU); ctx.fill();
-  }
+  // casquete de nieve en la cima
+  ctx.fillStyle = "#f2f7ff";
+  ctx.beginPath();
+  ctx.moveTo(sx - rx * 0.1, domeCy - ry * 0.72);
+  ctx.lineTo(sx - rx * 0.34, domeCy - ry * 0.18);
+  ctx.lineTo(sx - rx * 0.2, domeCy - ry * 0.26);
+  ctx.lineTo(sx - rx * 0.06, domeCy - ry * 0.12);
+  ctx.lineTo(sx + rx * 0.06, domeCy - ry * 0.28);
+  ctx.lineTo(sx + rx * 0.2, domeCy - ry * 0.14);
+  ctx.lineTo(sx + rx * 0.34, domeCy - ry * 0.2);
+  ctx.lineTo(sx + rx * 0.12, domeCy - ry * 0.72);
+  ctx.closePath(); ctx.fill();
+  // sombra sutil bajo la nieve (lado derecho)
+  ctx.fillStyle = "rgba(180,195,215,.5)";
+  ctx.beginPath();
+  ctx.moveTo(sx + rx * 0.02, domeCy - ry * 0.5); ctx.lineTo(sx + rx * 0.2, domeCy - ry * 0.14);
+  ctx.lineTo(sx + rx * 0.34, domeCy - ry * 0.2); ctx.lineTo(sx + rx * 0.12, domeCy - ry * 0.72);
+  ctx.closePath(); ctx.fill();
+  // brillo de cresta (arista iluminada)
+  ctx.strokeStyle = "rgba(255,255,245,.35)"; ctx.lineWidth = Math.max(1, 2 * cam.z);
+  ctx.beginPath(); ctx.moveTo(sx - rx * 0.1, domeCy - ry * 0.72); ctx.lineTo(sx - rx * 0.5, domeCy + ry * 0.6); ctx.stroke();
   // bocas de túnel
   for (const m of h.mouths){
     const [mx, my] = proj(m.x, m.y);
@@ -2742,18 +2755,22 @@ function renderCab(dt){
     const drawWaterDisc = (wx, wy, rw) => {
       const dx = wx - hp.x, dy = wy - hp.y;
       const f = dx * cH + dy * sH;
-      if (f < 14 || f > 640) return;
+      if (f < 8 || f > 900) return;
       const l = -dx * sH + dy * cH;
-      if (Math.abs(l) > 1600) return;
-      const sc = persp(f);
-      const x = xAt(l, f), y = yAt(f);
-      const w = clamp(rw * KX * persp(f) * 0.9, 4, W * 1.6);
+      const x = xAt(l, f);
+      if (x < -W || x > 2 * W) return;
+      const w = clamp(rw * KX * persp(f), 4, W * 1.6);
+      // proyectar los bordes cercano y lejano del charco sobre el plano del
+      // suelo: así el agua queda aplastada sobre la tierra y su borde superior
+      // (yF) nunca sube por encima del horizonte
+      const yN = yAt(Math.max(2, f - rw)), yF = yAt(f + rw);
+      const cy = (yN + yF) / 2, ry = Math.max(2, (yN - yF) / 2);
       ctx.fillStyle = "#4f9bcf";
-      ctx.beginPath(); ctx.ellipse(x, y, w, w * 0.32, 0, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x, cy, w, ry, 0, 0, TAU); ctx.fill();
       ctx.fillStyle = "#63b7e6";
-      ctx.beginPath(); ctx.ellipse(x, y - w * 0.03, w * 0.82, w * 0.24, 0, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x, cy - ry * 0.1, w * 0.82, ry * 0.72, 0, 0, TAU); ctx.fill();
       ctx.fillStyle = "rgba(143,208,240,.85)";
-      ctx.beginPath(); ctx.ellipse(x - w * 0.15, y - w * 0.05, w * 0.5, w * 0.14, 0, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x - w * 0.15, cy - ry * 0.15, w * 0.5, ry * 0.42, 0, 0, TAU); ctx.fill();
     };
     for (const d of decor){ if (d.type === "lake") drawWaterDisc(d.x, d.y, 120 * (d.s || 1)); }
     const allRivers = [riverPath, ...userRivers];
@@ -2828,16 +2845,119 @@ function renderCab(dt){
       ctx.stroke();
     }
   }
-  // ----- decorado lateral (billboards, lejos → cerca) -----
+  // ----- montañas/colinas con túnel (billboard 3D en perspectiva) -----
+  function drawCabHill(h, bf, bl){
+    const sc = persp(bf);
+    const cx = xAt(bl, bf), groundY = yAt(bf);
+    const halfW = Math.max(24, h.rx * KX * sc);
+    const peakH = h.rx * 1.55 * KX * sc;
+    const seed = (Math.abs(h.x) * 0.013 + Math.abs(h.y) * 0.007) % 1;
+    const mainX = cx - halfW * (0.22 - seed * 0.18);
+    const apexY = groundY - peakH;
+    const secX = cx + halfW * 0.44, secY = groundY - peakH * (0.6 + seed * 0.14);
+    // silueta rocosa (dos picos)
+    ctx.beginPath();
+    ctx.moveTo(cx - halfW, groundY);
+    ctx.lineTo(cx - halfW * 0.55, groundY - peakH * 0.5);
+    ctx.lineTo(mainX - halfW * 0.14, groundY - peakH * 0.8);
+    ctx.lineTo(mainX, apexY);
+    ctx.lineTo(cx + halfW * 0.02, groundY - peakH * 0.46);
+    ctx.lineTo(secX, secY);
+    ctx.lineTo(cx + halfW * 0.78, groundY - peakH * 0.24);
+    ctx.lineTo(cx + halfW, groundY);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(0, apexY, 0, groundY);
+    g.addColorStop(0, "#b9b3aa"); g.addColorStop(0.5, "#8c8479"); g.addColorStop(1, "#5e574e");
+    ctx.fillStyle = g; ctx.fill();
+    ctx.save(); ctx.clip();
+    // lado en sombra
+    ctx.fillStyle = "rgba(40,34,28,.26)";
+    ctx.beginPath(); ctx.moveTo(mainX, apexY); ctx.lineTo(cx + halfW, groundY); ctx.lineTo(mainX, groundY); ctx.closePath(); ctx.fill();
+    // grietas / facetas
+    ctx.strokeStyle = "rgba(48,42,36,.4)"; ctx.lineWidth = Math.max(1, 2 * sc);
+    ctx.beginPath();
+    ctx.moveTo(mainX, apexY); ctx.lineTo(cx - halfW * 0.18, groundY);
+    ctx.moveTo(mainX, apexY); ctx.lineTo(cx + halfW * 0.22, groundY);
+    ctx.moveTo(secX, secY); ctx.lineTo(cx + halfW * 0.66, groundY);
+    ctx.stroke();
+    ctx.restore();
+    // casquetes de nieve
+    ctx.fillStyle = "#f2f7ff";
+    ctx.beginPath();
+    ctx.moveTo(mainX, apexY);
+    ctx.lineTo(mainX - halfW * 0.15, apexY + peakH * 0.2);
+    ctx.lineTo(mainX - halfW * 0.05, apexY + peakH * 0.12);
+    ctx.lineTo(mainX + halfW * 0.03, apexY + peakH * 0.22);
+    ctx.lineTo(mainX + halfW * 0.1, apexY + peakH * 0.11);
+    ctx.lineTo(mainX + halfW * 0.17, apexY + peakH * 0.21);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(secX, secY);
+    ctx.lineTo(secX - halfW * 0.1, secY + peakH * 0.13);
+    ctx.lineTo(secX + halfW * 0.02, secY + peakH * 0.08);
+    ctx.lineTo(secX + halfW * 0.1, secY + peakH * 0.14);
+    ctx.closePath(); ctx.fill();
+    // portal de túnel en la boca más cercana por delante
+    let best = null, bestF = 1e9;
+    for (const m of h.mouths){
+      const dx = m.x - hp.x, dy = m.y - hp.y;
+      const mf = dx * cosH + dy * sinH;
+      if (mf < 1) continue;
+      if (mf < bestF){ bestF = mf; best = { mf, ml: -dx * sinH + dy * cosH }; }
+    }
+    if (best){
+      const psc = persp(best.mf);
+      const px = xAt(best.ml, best.mf), py = yAt(best.mf);
+      const pw = Math.max(9, 15 * KX * psc), ph = pw * 2.1;
+      // apron rocoso alrededor del portal
+      ctx.fillStyle = "#95897a";
+      ctx.beginPath(); ctx.moveTo(px - pw * 1.6, py);
+      ctx.quadraticCurveTo(px - pw * 1.6, py - ph * 0.8, px, py - ph * 1.02);
+      ctx.quadraticCurveTo(px + pw * 1.6, py - ph * 0.8, px + pw * 1.6, py);
+      ctx.closePath(); ctx.fill();
+      // anillo de piedra
+      ctx.fillStyle = "#c6bdac";
+      ctx.beginPath(); ctx.moveTo(px - pw * 1.2, py);
+      ctx.lineTo(px - pw * 1.2, py - ph * 0.5);
+      ctx.quadraticCurveTo(px - pw * 1.2, py - ph, px, py - ph);
+      ctx.quadraticCurveTo(px + pw * 1.2, py - ph, px + pw * 1.2, py - ph * 0.5);
+      ctx.lineTo(px + pw * 1.2, py);
+      ctx.closePath(); ctx.fill();
+      // hueco oscuro (profundidad del túnel)
+      const tg = ctx.createRadialGradient(px, py - ph * 0.5, pw * 0.12, px, py - ph * 0.42, pw * 1.05);
+      tg.addColorStop(0, "#080604"); tg.addColorStop(0.7, "#1b1712"); tg.addColorStop(1, "#2c241b");
+      ctx.fillStyle = tg;
+      ctx.beginPath(); ctx.moveTo(px - pw * 0.86, py);
+      ctx.lineTo(px - pw * 0.86, py - ph * 0.5);
+      ctx.quadraticCurveTo(px - pw * 0.86, py - ph * 0.86, px, py - ph * 0.86);
+      ctx.quadraticCurveTo(px + pw * 0.86, py - ph * 0.86, px + pw * 0.86, py - ph * 0.5);
+      ctx.lineTo(px + pw * 0.86, py);
+      ctx.closePath(); ctx.fill();
+      // clave del arco
+      ctx.fillStyle = "#ddd5c2";
+      ctx.beginPath(); ctx.ellipse(px, py - ph, pw * 0.18, ph * 0.06, 0, 0, TAU); ctx.fill();
+    }
+  }
+  // ----- decorado lateral (billboards, lejos → cerca) — TODOS los elementos -----
   const bills = [];
+  const CAB_FAR = 3200;
   for (const d of decor){
     if (d.type === "flower" || d.type === "lake" || d.type === "footbridge") continue;
     const dx = d.x - hp.x, dy = d.y - hp.y;
     const f = dx * cosH + dy * sinH;
-    if (f < 6 || f > (d.type === "mountain" ? 1600 : 560)) continue;
+    if (f < 4 || f > CAB_FAR) continue;
     const l = -dx * sinH + dy * cosH;
-    if (Math.abs(l) > (d.type === "mountain" ? 1400 : 300)) continue;
+    const px = xAt(l, f);
+    if (px < -W * 0.4 || px > W * 1.4) continue;   // recorte por pantalla (no por mundo)
     bills.push({ f, l, d });
+  }
+  // colinas → montañas con túnel
+  for (const h of hills){
+    const dx = h.x - hp.x, dy = h.y - hp.y;
+    const f = dx * cosH + dy * sinH;
+    if (f < -h.rx * 0.5 || f > CAB_FAR) continue;
+    const l = -dx * sinH + dy * cosH;
+    bills.push({ f: Math.max(f, 1), l, hill: h });
   }
   // otros trenes como billboards
   for (const ot of trains){
@@ -2847,15 +2967,17 @@ function renderCab(dt){
       const p = trainPosAt(ot, car.mid);
       const dx = p.x - hp.x, dy = p.y - hp.y;
       const f = dx * cosH + dy * sinH;
-      if (f < 4 || f > 560) continue;
+      if (f < 4 || f > 1200) continue;
       const l = -dx * sinH + dy * cosH;
-      if (Math.abs(l) > 90) continue;
+      const px = xAt(l, f);
+      if (px < -W * 0.4 || px > W * 1.4) continue;
       bills.push({ f, l, train: ot, car });
     }
   }
   bills.sort((a, b) => b.f - a.f);
   for (const b of bills){
     const sc = persp(b.f), x = xAt(b.l, b.f), y = yAt(b.f);
+    if (b.hill){ drawCabHill(b.hill, b.f, b.l); continue; }
     if (b.train){
       const col = TRAIN_COLORS[b.train.color];
       const w = 30 * KX * sc * 0.055, h = 26 * KX * sc * 0.055;
