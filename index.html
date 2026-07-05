@@ -103,7 +103,8 @@
 
   /* ---------- panel tren ---------- */
   #trainPanel{
-    position:absolute; z-index:22; display:none; flex-direction:column; gap:8px;
+    position:fixed; left:50%; transform:translateX(-50%);
+    bottom:calc(88px + var(--safe-b)); z-index:22; display:none; flex-direction:column; gap:8px;
     background:var(--panel-bg); border:3px solid var(--panel-border); border-radius:20px;
     padding:10px; box-shadow:0 10px 26px rgba(0,0,0,.28); animation:pop .18s ease;
     width:238px;
@@ -229,6 +230,7 @@
 
 <div id="buildPanel">
   <button class="btn" id="toolTrack" title="Trazar vía">✏️🛤️</button>
+  <button class="btn" id="toolJoin" title="Unir extremos (cerrar circuito)">🔗</button>
   <button class="btn" id="toolErase" title="Borrar vía">🧽</button>
   <button class="btn" id="toolStation" title="Estación">🚉</button>
   <button class="btn" id="btnBuildDone" title="Terminar" style="background:#d3f2c8;border-color:#37b24d;">✔️</button>
@@ -311,6 +313,7 @@ const TRAIN_COLORS = [
 ];
 const WAGON_TYPES = ["pasajeros", "mercancias", "cisterna", "madera"];
 const SAVE_KEY = "trenMagico_v1";
+let resetting = false; // evita que se re-guarde el estado tras "Empezar de nuevo"
 
 /* ---------------- estado global ---------------- */
 let canvas, ctx, fxCanvas, fxCtx, W = 0, H = 0, DPR = 1;
@@ -2280,16 +2283,30 @@ function drawTrainOverlays(){
   for (const t of trains){
     const hp = trainPosAt(t, t.headS - LOCO_LEN / 2);
     const [sx, sy] = proj(hp.x, hp.y);
-    // anillo de selección
+    // anillo de selección (borde brillante)
     if (t === selectedTrain && viewMode === "aerial"){
       const pulse = 1 + Math.sin(gameTime * 5) * 0.08;
-      ctx.strokeStyle = "rgba(255,255,255,.9)";
-      ctx.lineWidth = 3;
-      ctx.setLineDash([8, 6]);
+      const rx = 40 * cam.z * pulse, ry = 26 * cam.z * pulse;
+      ctx.save();
+      // halo brillante exterior
+      ctx.shadowColor = "rgba(255,215,60,.95)";
+      ctx.shadowBlur = 22;
+      ctx.strokeStyle = "rgba(255,224,90,.95)";
+      ctx.lineWidth = 5;
       ctx.beginPath();
-      ctx.ellipse(sx, sy, 40 * cam.z * pulse, 26 * cam.z * pulse, 0, 0, TAU);
+      ctx.ellipse(sx, sy, rx, ry, 0, 0, TAU);
+      ctx.stroke();
+      // borde interior blanco discontinuo giratorio
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "rgba(255,255,255,.95)";
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([9, 7]);
+      ctx.lineDashOffset = -gameTime * 22;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, rx, ry, 0, 0, TAU);
       ctx.stroke();
       ctx.setLineDash([]);
+      ctx.restore();
     }
     // aviso de colisión
     if (t.warn > 0){
@@ -2820,6 +2837,7 @@ function hornBlast(){
 const PIECE_LEN = 80, PIECE_R = 110;
 let buildDrag = null;       // arrastre en curso
 let deniedFlash = null;     // marca roja temporal
+let joinFrom = null;        // primer extremo elegido en la herramienta "unir"
 function setBuildMode(on){
   buildMode = on;
   buildTool = "track";
@@ -2834,20 +2852,24 @@ function setBuildMode(on){
     ui.buildHint.textContent = "Arrastra desde un punto brillante ✨ para crear vías";
   }
   buildDrag = null;
+  joinFrom = null;
   Snd.pop();
   saveSoon();
 }
 function setBuildTool(tool){
   buildTool = tool;
+  joinFrom = null;
   updateToolButtons();
   ui.buildHint.textContent =
     tool === "track" ? "Arrastra desde un punto brillante ✨ para crear vías" :
+    tool === "join" ? "Toca dos extremos ✨ para unirlos y cerrar el circuito 🔗" :
     tool === "erase" ? "Toca un tramo de vía para borrarlo 🧽" :
     "Toca la vía donde quieras una estación 🚉";
   Snd.pop();
 }
 function updateToolButtons(){
   ui.toolTrack.classList.toggle("on", buildTool === "track");
+  ui.toolJoin.classList.toggle("on", buildTool === "join");
   ui.toolErase.classList.toggle("on", buildTool === "erase");
   ui.toolStation.classList.toggle("on", buildTool === "station");
 }
@@ -3019,6 +3041,66 @@ function stationAt(wx, wy){
   Snd.pop();
   saveSoon();
 }
+/* ---------- herramienta UNIR: cerrar circuitos con curvas suaves ---------- */
+function voidDir(node){
+  // dirección hacia el vacío en un extremo libre (segs.length === 1)
+  const sg = segs.get(node.segs[0]);
+  const [ox, oy] = outwardTangent(sg, node.id); // apunta hacia la vía existente
+  return [-ox, -oy]; // hacia el vacío
+}
+function joinConnector(A, B){
+  // bezier que sale de A por su dirección al vacío y entra en B por la suya
+  const [avx, avy] = voidDir(A);
+  const [bvx, bvy] = voidDir(B);
+  const d = dist(A.x, A.y, B.x, B.y);
+  const k = clamp(d / 2.6, 34, 220);
+  return {
+    p0: [A.x, A.y], p3: [B.x, B.y],
+    c1: [A.x + avx * k, A.y + avy * k],
+    c2: [B.x + bvx * k, B.y + bvy * k]
+  };
+}
+function joinTapAt(wx, wy){
+  const tol = Math.max(34, 44 / cam.z);
+  const n = nearestNode(wx, wy, tol);
+  if (!n || n.segs.length !== 1){
+    Snd.deny();
+    toastMsg("🔗", "Toca un extremo libre ✨ de la vía");
+    joinFrom = null;
+    return;
+  }
+  if (!joinFrom){
+    joinFrom = n.id;
+    Snd.pop();
+    ui.buildHint.textContent = "Ahora toca el otro extremo ✨ para unirlos 🔗";
+    return;
+  }
+  if (joinFrom === n.id){ // deseleccionar el mismo extremo
+    joinFrom = null;
+    Snd.pop();
+    ui.buildHint.textContent = "Toca dos extremos ✨ para unirlos y cerrar el circuito 🔗";
+    return;
+  }
+  const A = nodes.get(joinFrom);
+  if (!A || A.segs.length !== 1){ joinFrom = null; return; }
+  const conn = joinConnector(A, n);
+  if (!pieceClear(conn, A.id, n.id)){
+    Snd.deny();
+    toastMsg("🔗", "No caben las vías por ahí, prueba otro trazado");
+    deniedFlash = { x: A.x, y: A.y, t: 0.6, seg: -1 };
+    return;
+  }
+  addSeg(A.id, n.id, conn.c1[0], conn.c1[1], conn.c2[0], conn.c2[1]);
+  joinFrom = null;
+  buildCount++;
+  if (buildCount >= 10) achieve("constructor");
+  for (let i = 0; i < 6; i++) spawnSteam(n.x + rand(-10, 10), n.y + rand(-8, 8));
+  Snd.pop();
+  toastMsg("🔗", "¡Vías unidas! Circuito cerrado");
+  ui.buildHint.textContent = "Toca dos extremos ✨ para unirlos y cerrar el circuito 🔗";
+  recomputeTunnelMouths();
+  saveSoon();
+}
 /* rutas que referencian segmentos borrados */
 function sanitizeRoutes(){
   for (const t of trains){
@@ -3054,6 +3136,20 @@ function drawBuildOverlay(vr){
     } else {
       ctx.fillStyle = "rgba(255,255,255,.75)";
       ctx.beginPath(); ctx.arc(n.x, n.y, 4.5, 0, TAU); ctx.fill();
+    }
+  }
+  // herramienta unir: resaltar el primer extremo elegido
+  if (buildTool === "join" && joinFrom != null){
+    const jn = nodes.get(joinFrom);
+    if (jn){
+      ctx.save();
+      ctx.strokeStyle = "#37b24d";
+      ctx.lineWidth = 5;
+      ctx.setLineDash([8, 6]);
+      ctx.lineDashOffset = -gameTime * 20;
+      ctx.beginPath(); ctx.arc(jn.x, jn.y, 24 + pulse * 5, 0, TAU); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
     }
   }
   // candidato en curso
@@ -3250,6 +3346,7 @@ function handleTap(sx, sy, wx, wy){
   if (buildMode){
     if (buildTool === "erase"){ eraseAt(wx, wy); return; }
     if (buildTool === "station"){ stationAt(wx, wy); return; }
+    if (buildTool === "join"){ joinTapAt(wx, wy); return; }
     const swn0 = switchNodeAt(sx, sy);
     if (swn0) toggleSwitch(swn0);
     return;
@@ -3392,18 +3489,10 @@ function updateTrainPanel(){
   ui.tpFollow.classList.toggle("on", cam.follow === t.id);
 }
 function positionTrainPanel(){
+  // El panel está fijo en la zona inferior (CSS); aquí solo refrescamos
+  // el estado dinámico de sus botones cada frame.
   const t = selectedTrain;
   if (!t || viewMode !== "aerial" || buildMode) return;
-  const hp = trainPosAt(t, t.headS - LOCO_LEN / 2);
-  const [sx, sy] = proj(hp.x, hp.y);
-  const pw = ui.trainPanel.offsetWidth || 238;
-  const ph = ui.trainPanel.offsetHeight || 210;
-  let x = clamp(sx - pw / 2, 8, W - pw - 8);
-  let y = sy + 44 * cam.z;
-  if (y + ph > H - 100) y = sy - ph - 52 * cam.z;
-  y = clamp(y, 64, H - ph - 8);
-  ui.trainPanel.style.left = x + "px";
-  ui.trainPanel.style.top = y + "px";
   const dis = t.speed > 2;
   if (ui.tpReverse.disabled !== dis) ui.tpReverse.disabled = dis;
   const runIcon = t.running ? "⏸️" : "▶️";
@@ -3509,7 +3598,7 @@ function setupHold(btn, ms, cb){
 /* ---------------- inicialización de la UI ---------------- */
 function initUI(){
   const ids = ["medalIcon","medalTime","btnSound","btnFull","btnSettings","bottomBar","btnNewTrain","btnBuild",
-    "colorPicker","buildPanel","toolTrack","toolErase","toolStation","btnBuildDone","buildBand","buildHint",
+    "colorPicker","buildPanel","toolTrack","toolJoin","toolErase","toolStation","btnBuildDone","buildBand","buildHint",
     "trainPanel","tpName","tpPlay","tpReverse","tpFollow","tpCab","tpSpeed","tpAddWagon","tpDelWagon","tpDelete",
     "cabUI","btnBackMap","btnHorn","cabSpeedRange","btnCabStop","settingsPanel","stTutorial","stReset",
     "toast","toastText","bubble","bubbleText","bubbleSkip","hand","topLeft","topRight"];
@@ -3535,6 +3624,7 @@ function initUI(){
   ui.btnBuild.addEventListener("click", () => setBuildMode(!buildMode));
   ui.btnBuildDone.addEventListener("click", () => setBuildMode(false));
   ui.toolTrack.addEventListener("click", () => setBuildTool("track"));
+  ui.toolJoin.addEventListener("click", () => setBuildTool("join"));
   ui.toolErase.addEventListener("click", () => setBuildTool("erase"));
   ui.toolStation.addEventListener("click", () => setBuildTool("station"));
   // panel de tren
@@ -3624,6 +3714,7 @@ function initUI(){
     Snd.pop();
   });
   setupHold(ui.stReset, 1100, () => {
+    resetting = true;
     try { localStorage.removeItem(SAVE_KEY); } catch(e){}
     location.reload();
   });
@@ -3671,6 +3762,7 @@ function serialize(){
   };
 }
 function saveGame(){
+  if (resetting) return;
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(serialize())); } catch(e){}
 }
 function deserialize(d){
@@ -3835,7 +3927,7 @@ function init(){
   ui.btnSound.textContent = Snd.muted ? "🔇" : "🔊";
   updateMedalUI();
   updateTrainPanel();
-  if (!onboarding.done) startOnboarding();
+  // El tutorial NO arranca solo; solo se lanza desde Ajustes → "Ver tutorial".
   document.addEventListener("visibilitychange", () => {
     if (document.hidden){ saveGame(); Snd.suspend(); }
     else { Snd.resume(); }
