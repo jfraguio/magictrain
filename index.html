@@ -4,6 +4,51 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="description" content="Tren Mágico — simulador de trenes para niños">
+<!-- ---- Pantalla completa al añadir a la pantalla de inicio (web app) ---- -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tren Mágico">
+<meta name="theme-color" content="#79c86e">
+<link id="manifestLink" rel="manifest">
+<link id="appIcon" rel="apple-touch-icon">
+<script>
+// Manifest e icono incrustados (sin ficheros externos, funciona offline).
+(function(){
+  var icon =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">'+
+    '<rect width="512" height="512" fill="#79c86e"/>'+
+    '<rect x="60" y="360" width="392" height="14" rx="7" fill="#8a5a2b"/>'+
+    '<rect x="150" y="180" width="230" height="150" rx="24" fill="#e8433f"/>'+
+    '<rect x="150" y="150" width="110" height="92" rx="20" fill="#c9302c"/>'+
+    '<rect x="170" y="172" width="62" height="52" rx="10" fill="#bfe3ff"/>'+
+    '<rect x="330" y="128" width="40" height="62" rx="8" fill="#3a2a20"/>'+
+    '<circle cx="350" cy="108" r="26" fill="#fff" opacity="0.9"/>'+
+    '<circle cx="392" cy="86" r="18" fill="#fff" opacity="0.8"/>'+
+    '<circle cx="200" cy="345" r="34" fill="#333"/>'+
+    '<circle cx="200" cy="345" r="14" fill="#ddd"/>'+
+    '<circle cx="320" cy="345" r="34" fill="#333"/>'+
+    '<circle cx="320" cy="345" r="14" fill="#ddd"/>'+
+    '</svg>';
+  var iconUri = 'data:image/svg+xml,' + encodeURIComponent(icon);
+  var manifest = {
+    name: "Tren Mágico",
+    short_name: "Tren Mágico",
+    description: "Simulador de trenes para niños",
+    start_url: ".",
+    scope: ".",
+    display: "fullscreen",
+    display_override: ["fullscreen", "standalone"],
+    orientation: "landscape",
+    background_color: "#79c86e",
+    theme_color: "#79c86e",
+    icons: [{ src: iconUri, sizes: "any", type: "image/svg+xml", purpose: "any maskable" }]
+  };
+  var mUri = 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(manifest));
+  document.getElementById("manifestLink").setAttribute("href", mUri);
+  document.getElementById("appIcon").setAttribute("href", iconUri);
+})();
+</script>
 <title>🚂 Tren Mágico</title>
 <style>
   :root{
