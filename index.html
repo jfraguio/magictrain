@@ -240,6 +240,7 @@
   #settingsPanel.show{ display:flex; }
   #settingsPanel .btn{ font-size:17px; justify-content:flex-start; }
   #stTimeAuto.on{ background:#cde7c4; border-color:#7bb86a; }
+  #stWeather.on{ background:#cfe3f2; border-color:#6aa9d8; }
   #stTime{ accent-color:#e08b1d; height:26px; }
   .holdBtn{ position:relative; overflow:hidden; }
   .holdBtn .fill{
@@ -375,6 +376,7 @@
   <div id="stTimeLabel" style="font-weight:900;text-align:center;font-size:15px;">🕘 09:00 · Día ☀️</div>
   <input type="range" id="stTime" min="0" max="1439" step="5" value="540" style="width:100%;">
   <button class="btn" id="stTimeAuto">⏱️ <span class="lbl">Hora automática ✓</span></button>
+  <button class="btn" id="stWeather">🌦️ <span class="lbl">Clima automático</span></button>
   <button class="btn" id="stTutorial">💬 <span class="lbl">Ver tutorial</span></button>
   <button class="btn danger holdBtn" id="stReset">🧹 <span class="lbl">Empezar de nuevo (mantén)</span><div class="fill"></div></button>
   <div style="text-align:center;font-size:12px;opacity:.7;">Tren Mágico v1 · hecho con ❤️</div>
@@ -431,6 +433,7 @@ let nid = 1, sid = 1, stationId = 1, trainId = 1;
 let trains = [];
 let particles = [], screenParticles = [];
 let decor = [], hills = [], clouds = [], birds = [], stars = [];
+let starOccluders = [];          // cajas en pantalla de objetos que tapan las estrellas (montañas, árboles…)
 let riverPath = [];              // polilínea del río
 const RIVER_W = 64;
 let cam = { x: 1050, y: 800, z: 0.9, follow: 0, zoomAnim: null };
@@ -549,6 +552,36 @@ const Snd = {
   },
   bump(){ this.noiseBurst({ freq: 300, q: 1, dur: 0.12, vol: 0.25 }); },
   chuff(vol){ this.noiseBurst({ freq: 900, q: 0.8, dur: 0.08, vol: Math.min(0.1, vol) }); },
+  // trueno: retumbo grave de ruido filtrado. delay (s) y power 0..1 (cercanía)
+  thunder(delay, power){
+    if (!this.ctx || this.muted) return;
+    const t0 = this.ctx.currentTime + Math.max(0, delay || 0);
+    power = clamp(power == null ? 0.6 : power, 0.25, 1);
+    const dur = 1.1 + power * 1.9;
+    const len = Math.max(1, Math.floor(this.ctx.sampleRate * dur));
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    let last = 0;                       // ruido "marrón" (integrado) = graves
+    for (let i = 0; i < len; i++){
+      const w = Math.random() * 2 - 1;
+      last = (last + 0.02 * w) / 1.02;
+      d[i] = last * 3.4 * (1 - i / len);
+    }
+    const src = this.ctx.createBufferSource(); src.buffer = buf;
+    const lp = this.ctx.createBiquadFilter(); lp.type = "lowpass";
+    lp.frequency.setValueAtTime(480, t0);
+    lp.frequency.exponentialRampToValueAtTime(110, t0 + dur);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.4 * power, t0 + 0.06);
+    g.gain.exponentialRampToValueAtTime(0.16 * power, t0 + 0.55);  // retumbos
+    g.gain.exponentialRampToValueAtTime(0.24 * power, t0 + 0.95);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(lp); lp.connect(g); g.connect(this.fxGain);
+    src.start(t0); src.stop(t0 + dur + 0.05);
+    // chasquido seco inicial solo si el rayo cae cerca
+    if (power > 0.62) this.noiseBurst({ freq: 3200, q: 0.6, dur: 0.16, vol: 0.16 * power, hp: true, at: t0 });
+  },
   fanfare(){
     if (!this.ctx || this.muted) return;
     const t = this.ctx.currentTime, seq = [523, 659, 784, 1047];
@@ -2668,6 +2701,12 @@ function drawStars(alpha, skyBottom){
   if (alpha <= 0.02) return;
   for (const st of stars){
     const x = st.x * W, y = st.y * skyBottom;
+    // ocultar la estrella si cae detrás de un objeto del primer plano (montaña, árbol…)
+    let hidden = false;
+    for (const o of starOccluders){
+      if (x >= o.x0 && x <= o.x1 && y >= o.y0 && y <= o.y1){ hidden = true; break; }
+    }
+    if (hidden) continue;
     const tw = 0.45 + 0.55 * Math.sin(gameTime * 1.8 + st.tw);
     ctx.fillStyle = `rgba(255,255,246,${alpha * (0.3 + 0.7 * tw)})`;
     ctx.beginPath(); ctx.arc(x, y, st.s, 0, TAU); ctx.fill();
@@ -2686,6 +2725,144 @@ function drawMoon(x, y, r, alpha){
   ctx.beginPath(); ctx.arc(x + r * 0.26, y + r * 0.3, r * 0.15, 0, TAU); ctx.fill();
   ctx.beginPath(); ctx.arc(x + r * 0.12, y - r * 0.36, r * 0.11, 0, TAU); ctx.fill();
   ctx.restore();
+}
+/* ============================================================
+   CLIMA — episodios automáticos de lluvia y tormenta con rayos.
+   El estado alterna: despejado → lluvia (a veces tormenta) → despejado.
+   La intensidad sube/baja de forma suave para evitar cambios bruscos.
+   ============================================================ */
+const WEATHER = {
+  CLEAR_MIN: 55, CLEAR_MAX: 110,   // s de cielo despejado entre episodios
+  WET_MIN: 28, WET_MAX: 60,        // s que dura la lluvia/tormenta
+  STORM_CHANCE: 0.4                // prob. de que el episodio húmedo sea tormenta
+};
+let weather = {
+  state: "clear",          // "clear" | "rain" | "storm"
+  timer: rand(20, 40),     // s hasta el próximo cambio de estado
+  intensity: 0,            // 0..1 cantidad de lluvia visible
+  storm: 0,                // 0..1 componente de tormenta (viento, oscuridad, rayos)
+  flash: 0,                // 0..1 destello del relámpago (decae rápido)
+  boltT: 3,                // s hasta el próximo rayo
+  bolt: null,              // { pts:[{x,y}], life } geometría del rayo dibujado
+  drops: []                // gotas en coordenadas de pantalla
+};
+let weatherMode = "auto";  // "auto" | "clear" | "rain" | "storm" (control manual en Ajustes)
+function advanceWeather(){
+  if (weather.state === "clear"){
+    const storm = Math.random() < WEATHER.STORM_CHANCE;
+    weather.state = storm ? "storm" : "rain";
+    weather.timer = rand(WEATHER.WET_MIN, WEATHER.WET_MAX);
+    if (storm) weather.boltT = rand(2, 5);
+  } else {
+    weather.state = "clear";
+    weather.timer = rand(WEATHER.CLEAR_MIN, WEATHER.CLEAR_MAX);
+  }
+}
+function newDrop(anywhere){
+  return {
+    x: rand(-40, W),
+    y: anywhere ? rand(-20, H) : rand(-60, -8),
+    v: rand(680, 1080),           // velocidad de caída (px/s)
+    len: rand(9, 20)
+  };
+}
+function strikeLightning(){
+  weather.flash = rand(0.7, 1);
+  // geometría quebrada del rayo, de arriba del cielo hacia el horizonte
+  const x0 = rand(W * 0.18, W * 0.82);
+  const pts = [{ x: x0, y: 0 }];
+  const bottom = H * 0.46;
+  const n = 6 + (Math.random() * 4 | 0);
+  let x = x0;
+  for (let i = 1; i <= n; i++){
+    x += rand(-46, 46);
+    pts.push({ x, y: bottom * i / n });
+  }
+  weather.bolt = { pts, life: 0.24 };
+  // trueno con retardo: cuanto más lejos (más retardo) más grave y flojo
+  const delay = rand(0.15, 1.7);
+  Snd.thunder(delay, clamp(1 - delay / 2.1, 0.3, 1));
+}
+function updateRainField(dt){
+  const density = weather.intensity * (0.55 + 0.45 * weather.storm);
+  const target = density < 0.02 ? 0 :
+    Math.round((W * H / 11000) * (0.6 + quality * 0.5) * density);
+  const drops = weather.drops;
+  while (drops.length < target) drops.push(newDrop(true));
+  if (drops.length > target) drops.length = target;
+  const wind = 0.18 + weather.storm * 0.4;
+  for (const d of drops){
+    d.y += d.v * dt;
+    d.x += d.v * wind * dt;
+    if (d.y > H + 20 || d.x > W + 40) Object.assign(d, newDrop(false));
+  }
+}
+function updateWeather(dt){
+  if (weatherMode === "auto"){
+    weather.timer -= dt;
+    if (weather.timer <= 0) advanceWeather();
+  } else {
+    weather.state = weatherMode;   // forzado desde Ajustes
+  }
+  // rampas suaves de intensidad
+  const inTgt = weather.state === "clear" ? 0 : 1;
+  const stTgt = weather.state === "storm" ? 1 : 0;
+  weather.intensity += (inTgt - weather.intensity) * Math.min(1, dt / 6);
+  weather.storm += (stTgt - weather.storm) * Math.min(1, dt / 8);
+  if (weather.flash > 0) weather.flash = Math.max(0, weather.flash - dt * 3.2);
+  // rayos mientras haya tormenta
+  if (weather.storm > 0.28){
+    weather.boltT -= dt;
+    if (weather.boltT <= 0){
+      strikeLightning();
+      weather.boltT = rand(2.5, 8) / Math.max(0.3, weather.storm);
+    }
+  }
+  if (weather.bolt){ weather.bolt.life -= dt; if (weather.bolt.life <= 0) weather.bolt = null; }
+  updateRainField(dt);
+}
+// dibuja lluvia + oscurecimiento + relámpago en coordenadas de pantalla.
+// showBolt: dibuja además el trazo del rayo (solo tiene sentido en cabina).
+function drawWeather(showBolt){
+  if (weather.intensity <= 0.01 && weather.flash <= 0.01) return;
+  const inten = weather.intensity;
+  // oscurecimiento por nubosidad (más intenso en tormenta)
+  const dark = inten * (0.16 + 0.26 * weather.storm);
+  if (dark > 0.01){
+    ctx.fillStyle = `rgba(24,28,40,${dark})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  // cortina de lluvia
+  if (weather.drops.length){
+    const wind = 0.18 + weather.storm * 0.4;
+    ctx.strokeStyle = `rgba(198,212,234,${0.26 + 0.22 * weather.storm})`;
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    for (const d of weather.drops){
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x - wind * d.len, d.y - d.len);
+    }
+    ctx.stroke();
+  }
+  // trazo del relámpago
+  if (showBolt && weather.bolt){
+    const b = weather.bolt;
+    const a = clamp(b.life / 0.24, 0, 1);
+    ctx.save();
+    ctx.shadowColor = "rgba(180,200,255,.9)"; ctx.shadowBlur = 18;
+    ctx.strokeStyle = `rgba(236,240,255,${a})`;
+    ctx.lineWidth = 2.6; ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(b.pts[0].x, b.pts[0].y);
+    for (let i = 1; i < b.pts.length; i++) ctx.lineTo(b.pts[i].x, b.pts[i].y);
+    ctx.stroke();
+    ctx.restore();
+  }
+  // destello global del relámpago (ilumina todo el cielo)
+  if (weather.flash > 0.01){
+    ctx.fillStyle = `rgba(226,232,255,${Math.min(0.72, weather.flash)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
 }
 // ---- control de hora en Ajustes ----
 function fmtHour(hour){
@@ -2709,6 +2886,31 @@ function updateTimeUI(){
   ui.stTimeLabel.textContent = fmtHour(hour) + " · " + phaseName(hour);
   ui.stTimeAuto.classList.toggle("on", timeAuto);
   ui.stTimeAuto.querySelector(".lbl").textContent = timeAuto ? "Hora automática ✓" : "Hora fija";
+}
+const WEATHER_UI = {
+  auto:  ["🌦️", "Clima automático"],
+  clear: ["☀️", "Despejado"],
+  rain:  ["🌧️", "Lluvia"],
+  storm: ["⛈️", "Tormenta"]
+};
+function updateWeatherUI(){
+  if (!ui || !ui.stWeather) return;
+  const [icon, label] = WEATHER_UI[weatherMode] || WEATHER_UI.auto;
+  ui.stWeather.firstChild.textContent = icon + " ";
+  ui.stWeather.querySelector(".lbl").textContent = label;
+  ui.stWeather.classList.toggle("on", weatherMode !== "auto");
+}
+function cycleWeatherMode(){
+  const order = ["auto", "clear", "rain", "storm"];
+  weatherMode = order[(order.indexOf(weatherMode) + 1) % order.length];
+  if (weatherMode === "auto"){
+    weather.timer = rand(WEATHER.CLEAR_MIN, WEATHER.CLEAR_MAX) * 0.4;  // reanuda el ciclo pronto
+  } else {
+    weather.state = weatherMode;
+    if (weatherMode === "storm") weather.boltT = Math.min(weather.boltT, 1.5);
+  }
+  updateWeatherUI();
+  Snd.pop();
 }
 /* ---------------- frame aéreo completo ---------------- */
 function renderAerial(){
@@ -2752,6 +2954,7 @@ function renderAerial(){
     ctx.restore();
   }
   drawMoon(sunX, sunY, 22, dl.night);
+  drawWeather(false);
 }
 /* ============================================================
    VISTA MAQUINISTA — pseudo-3D estilo "corridor" con parallax
@@ -3013,6 +3216,8 @@ function renderCab(dt){
     const cx = xAt(bl, bf), groundY = yAt(bf);
     const halfW = Math.max(24, h.rx * KX * sc);
     const peakH = h.rx * 1.55 * KX * sc;
+    // registrar silueta de la montaña para que oculte las estrellas del cielo
+    starOccluders.push({ x0: cx - halfW * 0.9, x1: cx + halfW * 0.9, y0: groundY - peakH, y1: groundY });
     const seed = (Math.abs(h.x) * 0.013 + Math.abs(h.y) * 0.007) % 1;
     const mainX = cx - halfW * (0.22 - seed * 0.18);
     const apexY = groundY - peakH;
@@ -3137,6 +3342,7 @@ function renderCab(dt){
     }
   }
   bills.sort((a, b) => b.f - a.f);
+  starOccluders.length = 0;   // recolectar siluetas que taparán las estrellas del cielo
   for (const b of bills){
     const sc = persp(b.f), x = xAt(b.l, b.f), y = yAt(b.f);
     if (b.hill){ drawCabHill(b.hill, b.f, b.l); continue; }
@@ -3179,6 +3385,11 @@ function renderCab(dt){
     let alpha = 0.34 + 0.66 * distA;
     if (b.f > CAB_FAR - 620) alpha *= clamp((CAB_FAR - b.f) / 620, 0, 1);
     if (alpha <= 0.02) continue;
+    // registrar silueta para que oculte las estrellas del cielo (solo objetos altos y bien visibles)
+    if (alpha > 0.5 && d.type !== "cow" && d.type !== "sheep" && d.type !== "person" && d.type !== "flower"){
+      const ox = x - anchX, oy = y - anchY;
+      starOccluders.push({ x0: ox + wpx * 0.12, x1: ox + wpx * 0.88, y0: oy, y1: y });
+    }
     // sombra de contacto en el suelo (asienta el objeto; no en montañas de fondo)
     if (d.type !== "mountain"){
       ctx.globalAlpha = alpha * 0.22;
@@ -3210,6 +3421,8 @@ function renderCab(dt){
     const moonX = (((-h0 / TAU) * W * 2.5 + W * 1.25) % (W * 2.5) + W * 2.5) % (W * 2.5) - W * 0.5;
     drawMoon(moonX, horizonY * 0.3, 22, dl.night);
   }
+  // lluvia / tormenta sobre el paisaje (el túnel, si lo hay, la tapará al entrar)
+  drawWeather(true);
   // dentro de un túnel: paredes de piedra + luz al fondo
   if (pointInAnyHill(hp.x, hp.y, 0.94)){
     // oscuridad general
@@ -4287,8 +4500,7 @@ function initUI(){
     "colorPicker","trainListPanel","buildPanel","toolTrack","toolJoin","toolErase","toolStation","btnBuildDone","buildBand","buildHint",
     "sceneryPanel","sceneryBand","scTree","scPine","scHouse","scCow","scSheep","scPerson","scLake","scMountain","scRiver","scErase","btnSceneryDone",
     "trainPanel","tpName","tpPlay","tpReverse","tpFollow","tpCab","tpSpeed","tpAddWagon","tpDelWagon","tpDelete",
-    "cabUI","btnBackMap","btnHorn","cabSpeedRange","btnCabStop","settingsPanel","stTutorial","stReset","stTime","stTimeLabel","stTimeAuto",
-    "toast","toastText","bubble","bubbleText","bubbleSkip","hand","topLeft","topRight"];
+    "cabUI","btnBackMap","btnHorn","cabSpeedRange","btnCabStop","settingsPanel","stTutorial","stReset","stTime","stTimeLabel","stTimeAuto","stWeather","toast","toastText","bubble","bubbleText","bubbleSkip","hand","topLeft","topRight"];
   for (const id of ids) ui[id] = document.getElementById(id);
   // selector de color de tren
   TRAIN_COLORS.forEach((c, i) => {
@@ -4418,6 +4630,7 @@ function initUI(){
     ui.settingsPanel.classList.toggle("show");
     ui.colorPicker.classList.remove("show");
     updateTimeUI();
+    updateWeatherUI();
     Snd.pop();
   });
   // control de hora del día
@@ -4432,6 +4645,10 @@ function initUI(){
     if (!timeAuto) timeManualHour = clamp(+ui.stTime.value / 60, 0, 24);
     updateTimeUI();
     Snd.pop();
+    saveSoon();
+  });
+  ui.stWeather.addEventListener("click", () => {
+    cycleWeatherMode();
     saveSoon();
   });
   ui.stTutorial.addEventListener("click", () => {
@@ -4488,6 +4705,7 @@ function serialize(){
     cam: { x: Math.round(cam.x), y: Math.round(cam.y), z: +cam.z.toFixed(2) },
     buildCount,
     timeAuto, timeManualHour: +timeManualHour.toFixed(3),
+    weatherMode,
     userDecor: userDecor.map(d => [d.type, Math.round(d.x), Math.round(d.y), +(+d.v).toFixed(3), +(+d.s).toFixed(2)]),
     userRivers: userRivers.map(rv => rv.map(p => [Math.round(p[0]), Math.round(p[1])]))
   };
@@ -4553,6 +4771,7 @@ function deserialize(d){
   buildCount = d.buildCount || 0;
   timeAuto = d.timeAuto !== undefined ? !!d.timeAuto : true;
   timeManualHour = clamp(+d.timeManualHour || DAY_START_HOUR, 0, 24);
+  weatherMode = ["auto","clear","rain","storm"].includes(d.weatherMode) ? d.weatherMode : "auto";
   // decoración y ríos del jugador
   userDecor = [];
   const OKTYPES = { tree:1, pine:1, house:1, cow:1, sheep:1, person:1, lake:1, mountain:1, bush:1 };
@@ -4602,6 +4821,7 @@ function update(dt){
   checkCollisions();
   updateParticles(dt);
   updateAmbient(dt);
+  updateWeather(dt);
   const anyMoving = trains.some(t => t.speed > 10);
   if (anyMoving) medalTime += dt;
   if (medalTime >= 300) achieve("seguro");
