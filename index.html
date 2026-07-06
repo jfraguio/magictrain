@@ -2757,10 +2757,13 @@ function renderAerial(){
    VISTA MAQUINISTA — pseudo-3D estilo "corridor" con parallax
    ============================================================ */
 let cabIntro = 1, cabSwitchHits = [], cabPuffs = [];
+let cabAng = 0, cabSway = 0;   // rumbo suavizado + balanceo lateral de la cabina
 function enterCab(t){
   cabTrain = t;
   viewMode = "cab";
   cabIntro = 0;
+  cabAng = trainPosAt(t, t.headS).ang;   // arranca sin barrido de cámara
+  cabSway = 0;
   ui.cabUI.classList.add("show");
   ui.trainPanel.classList.remove("show");
   ui.bottomBar.style.display = "none";
@@ -2823,12 +2826,27 @@ function renderCab(dt){
   screenTransform();
   ctx.clearRect(0, 0, W, H);
   const hp = trainPosAt(t, t.headS);
-  const h0 = hp.ang;
-  const horizonY = H * 0.42, bottomY = H * 0.96;
+  // muestras de la vía por delante (se reutilizan para dibujar la vía y para "mirar hacia la curva")
+  const { pts, sws } = cabPathSamples(t, 640, 7);
+  // ----- rumbo suavizado + mirar hacia la curva -----
+  let aheadAng = hp.ang;
+  for (const p of pts){
+    if (p.d >= 42){ aheadAng = Math.atan2(p.y - hp.y, p.x - hp.x); break; }
+  }
+  const targetAng = hp.ang + angNorm(aheadAng - hp.ang) * 0.38;   // sesgo suave hacia la curva
+  cabAng = angNorm(cabAng + angNorm(targetAng - cabAng) * Math.min(1, dt * 6));
+  const h0 = cabAng;
+  // ----- balanceo de cabina (traqueteo) sincronizado con la velocidad -----
+  const spd = clamp(t.speed / MAX_SPEED, 0, 1);
+  const curve = angNorm(aheadAng - hp.ang);
+  cabSway = lerp(cabSway, -curve * 58, Math.min(1, dt * 3.5));
+  const swayX = cabSway + Math.sin(t.wheelPhase) * spd * 1.6;
+  const bobY = (Math.sin(t.wheelPhase * 2) * 2.4 + Math.sin(t.wheelPhase * 0.63) * 1.1) * spd;
+  const horizonY = H * 0.42 + bobY, bottomY = H * 0.96 + bobY;
   const D0 = 55, KX = W * 0.048;
   const persp = f => D0 / (D0 + f);
   const yAt = f => horizonY + (bottomY - horizonY) * persp(f);
-  const xAt = (l, f) => W / 2 + l * KX * persp(f);
+  const xAt = (l, f) => W / 2 + swayX + l * KX * persp(f);
   const dl = dayInfo();
   // ----- cielo -----
   const sky = ctx.createLinearGradient(0, 0, 0, horizonY);
@@ -2861,7 +2879,7 @@ function renderCab(dt){
   const mOff = ((-h0 * 260) % 520 + 520) % 520;
   ctx.fillStyle = "#8ea7c4";
   for (let i = -1; i < Math.ceil(W / 260) + 1; i++){
-    const bx = i * 260 + mOff - 260;
+    const bx = i * 260 + mOff - 260 + swayX * 0.35;
     ctx.beginPath();
     ctx.moveTo(bx - 130, horizonY);
     ctx.lineTo(bx, horizonY - 58 - (i * 37 % 30));
@@ -2919,7 +2937,6 @@ function renderCab(dt){
     }
   }
   // ----- vía -----
-  const { pts, sws } = cabPathSamples(t, 640, 7);
   const rel = [];
   let lastF = -1;
   const cosH = Math.cos(h0), sinH = Math.sin(h0);
@@ -2945,10 +2962,12 @@ function renderCab(dt){
     }
     ctx.closePath(); ctx.fill();
     // traviesas (fijas al mundo: se mueven con el tren)
+    const maxF = rel[rel.length - 1].f;
+    ctx.save();
     ctx.fillStyle = "#8a6238";
     for (let k = 0; k < 70; k++){
       const f = k * 9 - (odo % 9);
-      if (f < 0 || f > rel[rel.length - 1].f) continue;
+      if (f < 0 || f > maxF) continue;
       // lateral interpolado
       let l = 0;
       for (let i = 1; i < rel.length; i++){
@@ -2958,10 +2977,13 @@ function renderCab(dt){
           break;
         }
       }
+      // desvanecer al aparecer (lejos) y al pasar bajo el tren (cerca): evita el estroboscopio
+      ctx.globalAlpha = clamp(f / 10, 0, 1) * clamp((maxF - f) / 140, 0, 1);
       const y0 = yAt(f), y1 = yAt(f + 2.4);
       const xw0 = xAt(l - 9, f), xw1 = xAt(l + 9, f);
       ctx.fillRect(xw0, y1, xw1 - xw0, Math.max(1, y0 - y1));
     }
+    ctx.restore();
     // raíles
     for (const side of [-6.5, 6.5]){
       ctx.strokeStyle = "#6b6b70";
@@ -3151,7 +3173,34 @@ function renderCab(dt){
     const scl = d.type === "mountain" ? 1.4 : 3.4;
     const wpx = s.wu * KX * 0.05 * sc * scl * d.s;
     const hpx = wpx * s.hu / s.wu;
-    ctx.drawImage(s.cv, x - wpx * (s.ax / s.wu), y - hpx * (s.ay / s.hu), wpx, hpx);
+    const anchX = wpx * (s.ax / s.wu), anchY = hpx * (s.ay / s.hu);
+    // desvanecido por distancia: bruma atmosférica + sin "pop" al llegar al plano lejano
+    const distA = clamp(1 - b.f / (CAB_FAR * 1.02), 0, 1);
+    let alpha = 0.34 + 0.66 * distA;
+    if (b.f > CAB_FAR - 620) alpha *= clamp((CAB_FAR - b.f) / 620, 0, 1);
+    if (alpha <= 0.02) continue;
+    // sombra de contacto en el suelo (asienta el objeto; no en montañas de fondo)
+    if (d.type !== "mountain"){
+      ctx.globalAlpha = alpha * 0.22;
+      ctx.fillStyle = "#141a10";
+      ctx.beginPath(); ctx.ellipse(x, y, wpx * 0.32, hpx * 0.05, 0, 0, TAU); ctx.fill();
+    }
+    ctx.globalAlpha = alpha;
+    if (d.type === "tree" || d.type === "pine" || d.type === "bush"){
+      // vaivén de viento pivotando sobre la base
+      const swA = Math.sin(gameTime * 1.4 + d.x * 0.05) * 0.03;
+      ctx.save();
+      ctx.translate(x, y); ctx.rotate(swA);
+      ctx.drawImage(s.cv, -anchX, -anchY, wpx, hpx);
+      ctx.restore();
+    } else if (d.type === "cow" || d.type === "sheep" || d.type === "person"){
+      // pequeño bamboleo de los animales/personas
+      const bob = Math.sin(gameTime * 3 + d.x * 0.1) * hpx * 0.03;
+      ctx.drawImage(s.cv, x - anchX, y - anchY + bob, wpx, hpx);
+    } else {
+      ctx.drawImage(s.cv, x - anchX, y - anchY, wpx, hpx);
+    }
+    ctx.globalAlpha = 1;
   }
   // tinte de luz ambiente (atardecer / noche) sobre cielo + paisaje
   applyDaylight();
@@ -3192,35 +3241,8 @@ function renderCab(dt){
     ctx.fillStyle = lg;
     ctx.beginPath(); ctx.ellipse(W / 2, horizonY, W * 0.16, H * 0.13, 0, 0, TAU); ctx.fill();
   }
-  // ----- flechas de agujas próximas (tocables) -----
+  // ----- (flechas de agujas ocultas en primera persona) -----
   cabSwitchHits = [];
-  for (const swp of sws){
-    if (swp.d < 8 || swp.d > 300) continue;
-    const dx = swp.x - hp.x, dy = swp.y - hp.y;
-    const f = dx * cosH + dy * sinH;
-    if (f < 8) continue;
-    const l = -dx * sinH + dy * cosH;
-    const x = xAt(l, f), y = yAt(f) - 60 * persp(f) * 3;
-    const sw = switches.get(swp.node);
-    if (!sw) continue;
-    const act = segs.get(sw.active);
-    if (!act) continue;
-    const fromN = act.a === swp.node;
-    const pin = lutAt(act, fromN ? Math.min(30, act.len * 0.5) : act.len - Math.min(30, act.len * 0.5));
-    const nSw = nodes.get(swp.node);
-    const relA = angNorm(Math.atan2(pin.y - nSw.y, pin.x - nSw.x) - h0);
-    const icon = relA > 0.18 ? "↱" : relA < -0.18 ? "↰" : "↑";
-    const r = clamp(26 + 60 * persp(f), 26, 44);
-    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU);
-    ctx.fillStyle = "rgba(255,253,245,.95)"; ctx.fill();
-    ctx.lineWidth = 4; ctx.strokeStyle = "#e08b1d"; ctx.stroke();
-    ctx.fillStyle = "#20516e";
-    ctx.font = `900 ${Math.round(r * 1.15)}px sans-serif`;
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(icon, x, y + r * 0.05);
-    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
-    cabSwitchHits.push({ x, y, r: r + 14, node: swp.node });
-  }
   // ----- aviso / choque -----
   if (t.warn > 0){
     const bob = Math.sin(gameTime * 9) * 6;
