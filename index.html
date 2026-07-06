@@ -2615,18 +2615,22 @@ function updateAmbient(dt){
 let birdTimer = 5;
 function drawClouds(){
   screenTransform();
+  const g = cloudGloom();
+  const cBase = `rgba(${215 - g * 150},${228 - g * 150},${240 - g * 145},.85)`;
+  const cVol  = `rgba(${255 - g * 150},${255 - g * 145},${255 - g * 138},.92)`;
+  const cHi   = `rgba(255,255,255,${0.9 * (1 - g * 0.85)})`;
   for (const c of clouds){
     const [sx, syg] = proj(c.x, c.y);
     const sy = syg - 88 * cam.z;   // altitud de la nube
     if (sx < -220 || sx > W + 220 || sy < -160 || sy > H + 160) continue;
     const s = c.s * cam.z;
     // base plana más oscura
-    ctx.fillStyle = "rgba(215,228,240,.85)";
+    ctx.fillStyle = cBase;
     ctx.beginPath();
     ctx.ellipse(sx, sy + 8 * s, 56 * s, 13 * s, 0, 0, TAU);
     ctx.fill();
     // volumen superior
-    ctx.fillStyle = "rgba(255,255,255,.92)";
+    ctx.fillStyle = cVol;
     ctx.beginPath();
     ctx.ellipse(sx, sy, 58 * s, 20 * s, 0, 0, TAU);
     ctx.ellipse(sx - 30 * s, sy + 5 * s, 34 * s, 15 * s, 0, 0, TAU);
@@ -2634,7 +2638,7 @@ function drawClouds(){
     ctx.ellipse(sx - 6 * s, sy - 9 * s, 30 * s, 14 * s, 0, 0, TAU);
     ctx.fill();
     // brillo
-    ctx.fillStyle = "rgba(255,255,255,.9)";
+    ctx.fillStyle = cHi;
     ctx.beginPath();
     ctx.ellipse(sx - 14 * s, sy - 10 * s, 18 * s, 8 * s, -0.2, 0, TAU);
     ctx.fill();
@@ -2747,6 +2751,10 @@ let weather = {
   drops: []                // gotas en coordenadas de pantalla
 };
 let weatherMode = "auto";  // "auto" | "clear" | "rain" | "storm" (control manual en Ajustes)
+// oscurecimiento de las nubes por el clima (0 normal · lluvia medio · tormenta máximo)
+function cloudGloom(){ return clamp(weather.intensity * (0.5 + 0.5 * weather.storm), 0, 1); }
+// atenuación del sol por nubosidad (0 pleno · lluvia bastante · tormenta casi tapado)
+function sunDim(){ return clamp(weather.intensity * (0.5 + 0.42 * weather.storm), 0, 0.9); }
 function advanceWeather(){
   if (weather.state === "clear"){
     const storm = Math.random() < WEATHER.STORM_CHANCE;
@@ -2763,7 +2771,7 @@ function newDrop(anywhere){
     x: rand(-40, W),
     y: anywhere ? rand(-20, H) : rand(-60, -8),
     v: rand(680, 1080),           // velocidad de caída (px/s)
-    len: rand(9, 20)
+    len: rand(14, 28)
   };
 }
 function strikeLightning(){
@@ -2786,7 +2794,7 @@ function strikeLightning(){
 function updateRainField(dt){
   const density = weather.intensity * (0.55 + 0.45 * weather.storm);
   const target = density < 0.02 ? 0 :
-    Math.round((W * H / 11000) * (0.6 + quality * 0.5) * density);
+    Math.round((W * H / 7000) * (0.6 + quality * 0.5) * density);
   const drops = weather.drops;
   while (drops.length < target) drops.push(newDrop(true));
   if (drops.length > target) drops.length = target;
@@ -2815,11 +2823,25 @@ function updateWeather(dt){
     weather.boltT -= dt;
     if (weather.boltT <= 0){
       strikeLightning();
-      weather.boltT = rand(2.5, 8) / Math.max(0.3, weather.storm);
+      weather.boltT = rand(5, 16) / Math.max(0.3, weather.storm);
     }
   }
   if (weather.bolt){ weather.bolt.life -= dt; if (weather.bolt.life <= 0) weather.bolt = null; }
+  updateStormClouds();
   updateRainField(dt);
+}
+// añade/quita algunas nubes extra según la fuerza de la tormenta
+function updateStormClouds(){
+  let have = 0;
+  for (const c of clouds) if (c.storm) have++;
+  const want = Math.round(weather.storm * 5);
+  while (have < want){
+    clouds.push({ x: rand(0, WORLD.w), y: rand(0, WORLD.h * 0.9), v: 5 + rand(0, 8), s: 0.8 + rand(0, 1.0), storm: true });
+    have++;
+  }
+  for (let i = clouds.length - 1; i >= 0 && have > want; i--){
+    if (clouds[i].storm){ clouds.splice(i, 1); have--; }
+  }
 }
 // dibuja lluvia + oscurecimiento + relámpago en coordenadas de pantalla.
 // showBolt: dibuja además el trazo del rayo (solo tiene sentido en cabina).
@@ -2827,7 +2849,7 @@ function drawWeather(showBolt){
   if (weather.intensity <= 0.01 && weather.flash <= 0.01) return;
   const inten = weather.intensity;
   // oscurecimiento por nubosidad (más intenso en tormenta)
-  const dark = inten * (0.16 + 0.26 * weather.storm);
+  const dark = inten * (0.24 + 0.30 * weather.storm);
   if (dark > 0.01){
     ctx.fillStyle = `rgba(24,28,40,${dark})`;
     ctx.fillRect(0, 0, W, H);
@@ -2835,8 +2857,8 @@ function drawWeather(showBolt){
   // cortina de lluvia
   if (weather.drops.length){
     const wind = 0.18 + weather.storm * 0.4;
-    ctx.strokeStyle = `rgba(198,212,234,${0.26 + 0.22 * weather.storm})`;
-    ctx.lineWidth = 1.1;
+    ctx.strokeStyle = `rgba(206,220,240,${0.42 + 0.26 * weather.storm})`;
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
     for (const d of weather.drops){
       ctx.moveTo(d.x, d.y);
@@ -2942,7 +2964,7 @@ function renderAerial(){
   // sol o luna en la esquina, según la hora
   const sunX = W - 90, sunY = 78;
   if (dl.day > 0.02){
-    ctx.save(); ctx.globalAlpha = dl.day;
+    ctx.save(); ctx.globalAlpha = dl.day * (1 - sunDim());
     const sg = ctx.createRadialGradient(sunX, sunY, 4, sunX, sunY, 55);
     sg.addColorStop(0, "rgba(255,240,150,.9)");
     sg.addColorStop(0.4, "rgba(255,220,90,.45)");
@@ -3059,7 +3081,7 @@ function renderCab(dt){
   // sol (se desvanece al anochecer)
   const sunX = ((-h0 / TAU) * W * 2.5 % (W * 2.5) + W * 2.5) % (W * 2.5) - W * 0.5;
   if (dl.day > 0.02){
-    ctx.save(); ctx.globalAlpha = dl.day;
+    ctx.save(); ctx.globalAlpha = dl.day * (1 - sunDim());
     ctx.fillStyle = "rgba(255,235,140,.95)";
     ctx.beginPath(); ctx.arc(sunX, horizonY * 0.35, 26, 0, TAU); ctx.fill();
     ctx.fillStyle = "rgba(255,235,140,.25)";
@@ -3067,11 +3089,13 @@ function renderCab(dt){
     ctx.restore();
   }
   // nubes parallax
+  const cg = cloudGloom();
+  const cabCloud = `rgba(${255 - cg * 150},${255 - cg * 145},${255 - cg * 138},.85)`;
   for (let i = 0; i < clouds.length; i++){
     const c = clouds[i];
     const cx0 = ((c.x * 0.6 - h0 * 420 + i * 300) % (W + 360) + W + 360) % (W + 360) - 180;
     const cy = 30 + (i * 53) % (horizonY * 0.55);
-    ctx.fillStyle = "rgba(255,255,255,.85)";
+    ctx.fillStyle = cabCloud;
     ctx.beginPath();
     ctx.ellipse(cx0, cy, 46 * c.s, 15 * c.s, 0, 0, TAU);
     ctx.ellipse(cx0 - 26 * c.s, cy + 5 * c.s, 26 * c.s, 11 * c.s, 0, 0, TAU);
