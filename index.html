@@ -164,6 +164,28 @@
   }
   #sceneryBand.show{ display:block; }
 
+  /* ---------- panel localizar trenes ---------- */
+  #trainListPanel{
+    position:absolute; left:50%; transform:translateX(-50%);
+    bottom:calc(92px + var(--safe-b)); z-index:25;
+    background:var(--panel-bg); border:3px solid #3d7be0; border-radius:22px;
+    padding:12px 14px; display:none; gap:10px; align-items:center; flex-wrap:wrap;
+    max-width:94vw; justify-content:center;
+    box-shadow:0 8px 24px rgba(0,0,0,.25); animation:pop .18s ease;
+  }
+  #trainListPanel.show{ display:flex; }
+  .trainChip{
+    display:flex; align-items:center; gap:6px; cursor:pointer; pointer-events:auto;
+    border:4px solid #fff; border-radius:16px; padding:8px 14px;
+    font-weight:800; font-size:16px; color:#fff;
+    box-shadow:0 3px 8px rgba(0,0,0,.3); transition:transform .1s;
+    text-shadow:0 1px 2px rgba(0,0,0,.35);
+  }
+  .trainChip:active{ transform:scale(.9); }
+  #trainListPanel .empty{
+    font-weight:800; color:#7a4d10; padding:4px 8px; font-size:15px;
+  }
+
   /* ---------- panel tren ---------- */
   #trainPanel{
     position:fixed; left:50%; transform:translateX(-50%);
@@ -288,11 +310,14 @@
 
 <div id="bottomBar">
   <button class="btn big" id="btnNewTrain" title="Nuevo tren">➕🚂</button>
+  <button class="btn big" id="btnLocate" title="Localizar trenes">🔍🚂</button>
   <button class="btn big" id="btnBuild" title="Construir vías">🛤️</button>
   <button class="btn big" id="btnScenery" title="Editar paisaje">🌳</button>
 </div>
 
 <div id="colorPicker"></div>
+
+<div id="trainListPanel"></div>
 
 <div id="buildPanel">
   <button class="btn" id="toolTrack" title="Trazar vía">✏️🛤️</button>
@@ -3322,6 +3347,8 @@ function setBuildMode(on){
   ui.buildHint.classList.toggle("show", on);
   ui.btnBuild.classList.toggle("on", on);
   ui.colorPicker.classList.remove("show");
+  ui.trainListPanel.classList.remove("show");
+  ui.btnLocate.classList.remove("on");
   updateToolButtons();
   if (on){
     selectTrain(null);
@@ -3374,6 +3401,8 @@ function setSceneryMode(on){
   ui.buildHint.classList.toggle("show", on);
   ui.btnScenery.classList.toggle("on", on);
   ui.colorPicker.classList.remove("show");
+  ui.trainListPanel.classList.remove("show");
+  ui.btnLocate.classList.remove("on");
   updateSceneryButtons();
   if (on){
     selectTrain(null);
@@ -4067,6 +4096,36 @@ function selectTrain(t){
   updateTrainPanel();
   if (t){ Snd.pop(); onboardingEvent("select"); }
 }
+function buildTrainList(){
+  const panel = ui.trainListPanel;
+  panel.innerHTML = "";
+  if (!trains.length){
+    const msg = document.createElement("div");
+    msg.className = "empty";
+    msg.textContent = "No hay trenes todavía 🚂";
+    panel.appendChild(msg);
+    return;
+  }
+  trains.forEach((t, i) => {
+    const col = TRAIN_COLORS[t.color];
+    const chip = document.createElement("div");
+    chip.className = "trainChip";
+    chip.style.background = `linear-gradient(160deg, ${col.c}, ${col.d})`;
+    chip.textContent = "🚂 " + col.name;
+    chip.addEventListener("pointerdown", e => e.stopPropagation());
+    chip.addEventListener("click", () => locateTrain(t));
+    panel.appendChild(chip);
+  });
+}
+function locateTrain(t){
+  if (!trains.includes(t)) return;
+  selectTrain(t);
+  cam.follow = t.id;          // centra la cámara sobre el tren (con seguimiento suave)
+  cam.zoomAnim = null;
+  ui.trainListPanel.classList.remove("show");
+  ui.btnLocate.classList.remove("on");
+  Snd.pop();
+}
 function toggleRun(t){
   t.running = !t.running;
   if (t.running){
@@ -4202,8 +4261,8 @@ function setupHold(btn, ms, cb){
 }
 /* ---------------- inicialización de la UI ---------------- */
 function initUI(){
-  const ids = ["medalIcon","medalTime","btnSound","btnFull","btnSettings","bottomBar","btnNewTrain","btnBuild","btnScenery",
-    "colorPicker","buildPanel","toolTrack","toolJoin","toolErase","toolStation","btnBuildDone","buildBand","buildHint",
+  const ids = ["medalIcon","medalTime","btnSound","btnFull","btnSettings","bottomBar","btnNewTrain","btnLocate","btnBuild","btnScenery",
+    "colorPicker","trainListPanel","buildPanel","toolTrack","toolJoin","toolErase","toolStation","btnBuildDone","buildBand","buildHint",
     "sceneryPanel","sceneryBand","scTree","scPine","scHouse","scCow","scSheep","scPerson","scLake","scMountain","scRiver","scErase","btnSceneryDone",
     "trainPanel","tpName","tpPlay","tpReverse","tpFollow","tpCab","tpSpeed","tpAddWagon","tpDelWagon","tpDelete",
     "cabUI","btnBackMap","btnHorn","cabSpeedRange","btnCabStop","settingsPanel","stTutorial","stReset","stTime","stTimeLabel","stTimeAuto",
@@ -4224,8 +4283,20 @@ function initUI(){
   ui.btnNewTrain.addEventListener("click", () => {
     if (buildMode) setBuildMode(false);
     if (sceneryMode) setSceneryMode(false);
+    ui.trainListPanel.classList.remove("show");
     ui.colorPicker.classList.toggle("show");
     ui.settingsPanel.classList.remove("show");
+    Snd.pop();
+  });
+  ui.btnLocate.addEventListener("click", () => {
+    if (buildMode) setBuildMode(false);
+    if (sceneryMode) setSceneryMode(false);
+    ui.colorPicker.classList.remove("show");
+    ui.settingsPanel.classList.remove("show");
+    const willShow = !ui.trainListPanel.classList.contains("show");
+    if (willShow) buildTrainList();
+    ui.trainListPanel.classList.toggle("show", willShow);
+    ui.btnLocate.classList.toggle("on", willShow);
     Snd.pop();
   });
   ui.btnBuild.addEventListener("click", () => setBuildMode(!buildMode));
