@@ -322,6 +322,7 @@
 
 <div id="buildPanel">
   <button class="btn" id="toolTrack" title="Trazar vía">✏️🛤️</button>
+  <button class="btn" id="toolElevated" title="Vía elevada (puente)">🌉</button>
   <button class="btn" id="toolJoin" title="Unir extremos (cerrar circuito)">🔗</button>
   <button class="btn" id="toolErase" title="Borrar vía">🧽</button>
   <button class="btn" id="toolStation" title="Estación">🚉</button>
@@ -415,6 +416,8 @@ const MAX_TRAINS = 5, MAX_WAGONS = 8;
 const LOCO_LEN = 46, WAGON_LEN = 36, CAR_GAP = 7;
 const MAX_SPEED = 130;           // unidades/s
 const RAIL_GAP = 13;             // separación raíles (mundo)
+const BRIDGE_H = 30;             // altura de las vías elevadas (mundo)
+const RAMP_LEN = 44;             // longitud de la rampa de subida/bajada de un viaducto
 const TRAIN_COLORS = [
   { c: "#e23d3d", d: "#a02020", name: "ROJO" },
   { c: "#2f7fe0", d: "#1c56a0", name: "AZUL" },
@@ -658,21 +661,52 @@ function outwardTangent(seg, nodeId){
   if (seg.a === nodeId){ const p = lutAt(seg, 0.5); return [p.tx, p.ty]; }
   const p = lutAt(seg, seg.len - 0.5); return [-p.tx, -p.ty];
 }
-function addSeg(aId, bId, c1x, c1y, c2x, c2y){
-  const s = { id: sid++, a: aId, b: bId, c: [c1x, c1y, c2x, c2y], bridges: [], stations: [] };
+function addSeg(aId, bId, c1x, c1y, c2x, c2y, elev){
+  const s = { id: sid++, a: aId, b: bId, c: [c1x, c1y, c2x, c2y], bridges: [], stations: [], elev: elev ? 1 : 0, ramp: null };
   segs.set(s.id, s);
   nodes.get(aId).segs.push(s.id);
   nodes.get(bId).segs.push(s.id);
   buildLUT(s);
   computeWaterSpans(s);
   refreshSwitchAt(aId); refreshSwitchAt(bId);
+  recomputeElevation();
   return s;
+}
+/* ---------------- vías elevadas (viaductos) ---------------- */
+// ¿algún otro segmento del nodo también es elevado? → viaducto continuo (sin rampa)
+function neighborElevated(nodeId, exceptSegId){
+  const n = nodes.get(nodeId);
+  if (!n) return false;
+  for (const sId of n.segs){
+    if (sId === exceptSegId) continue;
+    const sg = segs.get(sId);
+    if (sg && sg.elev) return true;
+  }
+  return false;
+}
+// recalcula, para cada segmento elevado, la longitud de rampa en cada extremo
+function recomputeElevation(){
+  for (const seg of segs.values()){
+    if (!seg.elev){ seg.ramp = null; continue; }
+    const rampA = neighborElevated(seg.a, seg.id) ? 0 : Math.min(RAMP_LEN, seg.len * 0.5);
+    const rampB = neighborElevated(seg.b, seg.id) ? 0 : Math.min(RAMP_LEN, seg.len * 0.5);
+    seg.ramp = [rampA, rampB];
+  }
+}
+// altura del tablero a distancia local s (0 en el suelo, sube por la rampa hasta BRIDGE_H)
+function elevationAt(seg, s){
+  if (!seg || !seg.elev) return 0;
+  if (!seg.ramp) return BRIDGE_H;
+  const [ra, rb] = seg.ramp;
+  let f = 1;
+  if (ra > 0) f = Math.min(f, s / ra);
+  if (rb > 0) f = Math.min(f, (seg.len - s) / rb);
+  return BRIDGE_H * clamp(f, 0, 1);
 }
 function addStraight(aId, bId){
   const na = nodes.get(aId), nb = nodes.get(bId);
   return addSeg(aId, bId, lerp(na.x, nb.x, 1/3), lerp(na.y, nb.y, 1/3), lerp(na.x, nb.x, 2/3), lerp(na.y, nb.y, 2/3));
-}
-// pieza de arco: desde pos con rumbo a (rad), giro delta (rad, + = horario), radio R
+}// pieza de arco: desde pos con rumbo a (rad), giro delta (rad, + = horario), radio R
 function arcPiece(x0, y0, a, delta, R){
   const dirx = Math.cos(a), diry = Math.sin(a);
   const s = Math.sign(delta) || 1;
@@ -710,6 +744,7 @@ function removeSeg(id){
   }
   segs.delete(id);
   recomputeTunnelMouths();
+  recomputeElevation();
 }
 /* ---------------- agujas (switches) ---------------- */
 function refreshSwitchAt(nodeId){
@@ -795,6 +830,7 @@ function nearWater(x, y, pad){
 }
 function computeWaterSpans(seg){
   seg.bridges = [];
+  if (seg.elev) return;   // los viaductos ya van elevados; no añadir tablero de río
   let inW = false, s0 = 0;
   const cum = seg.cum;
   for (let i = 0; i < seg.px.length; i++){
@@ -1864,7 +1900,7 @@ function drawTrack(vr){
   }
   // balasto + traviesas + raíles
   for (const seg of segs.values()){
-    if (!segInView(seg, vr)) continue;
+    if (seg.elev || !segInView(seg, vr)) continue;
     if (!seg.paths) buildSegPaths(seg);
     // terraplén: lado sur más oscuro para dar elevación
     ctx.save();
@@ -1895,7 +1931,7 @@ function drawTrack(vr){
   for (const n of nodes.values()){
     if (n.segs.length !== 1) continue;
     const seg = segs.get(n.segs[0]);
-    if (!seg || !segInView(seg, vr)) continue;
+    if (!seg || seg.elev || !segInView(seg, vr)) continue;
     const [ox, oy] = outwardTangent(seg, n.id);
     const bx = n.x - ox * 4, by = n.y - oy * 4;
     const nx = -oy, ny = ox;
@@ -1943,6 +1979,129 @@ function drawTrack(vr){
     ctx.fillStyle = "rgba(240,190,60,.85)";
     ctx.fillRect(-44, -12, 88, 2);
     ctx.restore();
+  }
+}
+/* ---------------- vías elevadas (viaductos sobre pilares) ---------------- */
+// Se dibuja en coordenadas de PANTALLA (screenTransform activo), después del
+// resto de entidades del suelo, para que el tablero tape lo que pasa por debajo.
+function drawElevatedTracks(vr){
+  const z = cam.z;
+  const half = RAIL_GAP / 2 + 4.5;   // semiancho del tablero (mundo)
+  const T = Math.max(3, 5 * z);      // grosor del tablero (pantalla)
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  for (const seg of segs.values()){
+    if (!seg.elev || !segInView(seg, vr)) continue;
+    const n = seg.px.length;
+    // muestreo: puntos de suelo, tablero (centro) y bordes izq/der levantados
+    const S = [];
+    for (let i = 0; i < n; i++){
+      const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
+      let tx = seg.px[i1] - seg.px[i0], ty = seg.py[i1] - seg.py[i0];
+      const m = Math.hypot(tx, ty) || 1; tx /= m; ty /= m;
+      const nx = -ty, ny = tx;
+      const h = elevationAt(seg, seg.cum[i]);
+      const lift = h * z;
+      const g = proj(seg.px[i], seg.py[i]);
+      const lE = proj(seg.px[i] + nx * half, seg.py[i] + ny * half);
+      const rE = proj(seg.px[i] - nx * half, seg.py[i] - ny * half);
+      S.push({
+        gx: g[0], gy: g[1],
+        cx: g[0], cy: g[1] - lift,
+        lx: lE[0], ly: lE[1] - lift,
+        rx: rE[0], ry: rE[1] - lift,
+        h
+      });
+    }
+    // 0) sombra del viaducto sobre el suelo (débil, ancha)
+    ctx.strokeStyle = "rgba(20,40,55,.18)"; ctx.lineWidth = half * 2.1 * z;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++){ if (i === 0) ctx.moveTo(S[i].gx + 3, S[i].gy + 6); else ctx.lineTo(S[i].gx + 3, S[i].gy + 6); }
+    ctx.stroke();
+    // 1) pilares cada cierto trecho
+    const PIER = 52;
+    for (let s = PIER * 0.5; s < seg.len; s += PIER){
+      const h = elevationAt(seg, s);
+      if (h < 8) continue;
+      const p = lutAt(seg, s);
+      const g = proj(p.x, p.y);
+      const topY = g[1] - h * z;
+      const pw = Math.max(3, 6.5 * z);
+      // sombra en el suelo
+      ctx.fillStyle = "rgba(20,40,55,.2)";
+      ctx.beginPath(); ctx.ellipse(g[0] + 3, g[1] + 3, pw * 1.3, pw * 0.5, 0, 0, TAU); ctx.fill();
+      // columna (ligeramente cónica) con lado en sombra
+      ctx.fillStyle = "#b9bdc7";
+      ctx.beginPath();
+      ctx.moveTo(g[0] - pw, g[1]);
+      ctx.lineTo(g[0] - pw * 0.72, topY);
+      ctx.lineTo(g[0] + pw * 0.72, topY);
+      ctx.lineTo(g[0] + pw, g[1]);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "rgba(60,70,85,.28)";
+      ctx.beginPath();
+      ctx.moveTo(g[0] + pw * 0.16, g[1]);
+      ctx.lineTo(g[0] + pw * 0.72, topY);
+      ctx.lineTo(g[0] + pw * 0.72, topY);
+      ctx.lineTo(g[0] + pw, g[1]);
+      ctx.closePath(); ctx.fill();
+      // capitel
+      ctx.fillStyle = "#cfd3db";
+      ctx.fillRect(g[0] - pw * 1.15, topY - 2 * z, pw * 2.3, 3 * z);
+    }
+    // helper: rellena la cinta entre bordes izq/der, con desplazamiento vertical dy
+    const ribbon = (dy, style) => {
+      ctx.fillStyle = style;
+      ctx.beginPath();
+      ctx.moveTo(S[0].lx, S[0].ly + dy);
+      for (let i = 1; i < n; i++) ctx.lineTo(S[i].lx, S[i].ly + dy);
+      for (let i = n - 1; i >= 0; i--) ctx.lineTo(S[i].rx, S[i].ry + dy);
+      ctx.closePath(); ctx.fill();
+    };
+    // 2) canto/fascia del tablero (cinta desplazada hacia abajo → da grosor)
+    ribbon(T, "#6e4a28");
+    // 3) cara superior del tablero (balasto)
+    ribbon(0, "#b5a382");
+    // 4) traviesas + raíles levantados
+    ctx.strokeStyle = "#8a6238"; ctx.lineWidth = Math.max(1, 2.4 * z);
+    for (let s = 5; s < seg.len - 3; s += 10){
+      const h = elevationAt(seg, s), lift = h * z;
+      const p = lutAt(seg, s);
+      const nx = -p.ty, ny = p.tx, e = half - 1.5;
+      const a = proj(p.x + nx * e, p.y + ny * e), b = proj(p.x - nx * e, p.y - ny * e);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1] - lift); ctx.lineTo(b[0], b[1] - lift); ctx.stroke();
+    }
+    for (const off of [RAIL_GAP / 2, -RAIL_GAP / 2]){
+      // alma oscura
+      ctx.strokeStyle = "#3f3f46"; ctx.lineWidth = Math.max(1.4, 2.6 * z);
+      ctx.beginPath();
+      for (let i = 0; i < n; i++){
+        const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
+        let tx = seg.px[i1] - seg.px[i0], ty = seg.py[i1] - seg.py[i0];
+        const m = Math.hypot(tx, ty) || 1; tx /= m; ty /= m;
+        const nx = -ty, ny = tx;
+        const h = elevationAt(seg, seg.cum[i]), lift = h * z;
+        const r = proj(seg.px[i] + nx * off, seg.py[i] + ny * off);
+        if (i === 0) ctx.moveTo(r[0], r[1] - lift); else ctx.lineTo(r[0], r[1] - lift);
+      }
+      ctx.stroke();
+      // cabeza brillante
+      ctx.strokeStyle = "#c7cbd3"; ctx.lineWidth = Math.max(0.8, 1.2 * z);
+      ctx.stroke();
+    }
+    // 5) barandillas a ambos lados
+    ctx.strokeStyle = "#dfe3ea"; ctx.lineWidth = Math.max(1, 1.6 * z);
+    for (const side of ["lx", "rx"]){
+      const yy = side === "lx" ? "ly" : "ry";
+      ctx.beginPath();
+      for (let i = 0; i < n; i++){ if (i === 0) ctx.moveTo(S[i][side], S[i][yy] - 7 * z); else ctx.lineTo(S[i][side], S[i][yy] - 7 * z); }
+      ctx.stroke();
+      // postes
+      ctx.lineWidth = Math.max(1, 1.4 * z);
+      for (let i = 0; i < n; i += 3){
+        ctx.beginPath(); ctx.moveTo(S[i][side], S[i][yy]); ctx.lineTo(S[i][side], S[i][yy] - 7 * z); ctx.stroke();
+      }
+      ctx.lineWidth = Math.max(1, 1.6 * z);
+    }
   }
 }
 /* ---------------- agujas ---------------- */
@@ -2050,7 +2209,8 @@ function collectEntities(vr){
       const p = trainPosAt(t, car.mid);
       if (pointInAnyHill(p.x, p.y, 0.86)) continue;
       if (p.x < vr.x0 || p.x > vr.x1 || p.y < vr.y0 || p.y > vr.y1) continue;
-      ents.push({ y: p.y, kind: "car", t, car, p, ci });
+      const elev = elevationAt(segs.get(p.segId), p.sLocal);
+      ents.push({ y: p.y, kind: "car", t, car, p, ci, elev, hi: elev > 1.5 });
     }
   }
   ents.sort((a, b) => a.y - b.y);
@@ -2095,7 +2255,7 @@ function drawEntity(e){
     drawSprite(sprStationHouse(), e.x, e.yy, 1);
     drawStationFlags(e.st);
   } else if (e.kind === "car"){
-    drawCar(e.t, e.car, e.p, e.ci);
+    drawCar(e.t, e.car, e.p, e.ci, e.elev || 0);
   }
 }
 function drawWindmill(d){
@@ -2256,11 +2416,12 @@ function hexShade(hex, k){
   const b = clamp(Math.round((n & 255) * k), 0, 255);
   return `rgb(${r},${g},${b})`;
 }
+let carBaseLift = 0;   // elevación de base (viaductos) sumada a la extrusión
 function carTransform(p, lift){
   const [sx, sy] = proj(p.x, p.y);
   const cA = Math.cos(p.ang), sA = Math.sin(p.ang);
   const z = cam.z;
-  ctx.setTransform(DPR * z * cA, DPR * z * sA * SQ, DPR * z * -sA, DPR * z * cA * SQ, DPR * sx, DPR * (sy - (lift || 0) * z));
+  ctx.setTransform(DPR * z * cA, DPR * z * sA * SQ, DPR * z * -sA, DPR * z * cA * SQ, DPR * sx, DPR * (sy - ((lift || 0) + carBaseLift) * z));
 }
 function carBodyPath(kind, L){
   if (kind === "loco"){
@@ -2271,8 +2432,9 @@ function carBodyPath(kind, L){
     rrectPath(ctx, -L / 2, -7.5, L, 15, 4);
   }
 }
-function drawCar(t, car, p, ci){
+function drawCar(t, car, p, ci, baseLift){
   const col = TRAIN_COLORS[t.color];
+  carBaseLift = baseLift || 0;
   const H = car.kind === "loco" ? 6 : 5;      // altura de extrusión
   const shk = t.shake > 0 ? Math.sin(gameTime * 55 + ci) * 2.2 * Math.max(0, t.shake) : 0;
   // sombra proyectada (desplazada por el sol: abajo-izquierda)
@@ -2280,7 +2442,7 @@ function drawCar(t, car, p, ci){
   ctx.save();
   ctx.translate(p.x - 3, p.y + 4.5);
   ctx.rotate(p.ang);
-  ctx.fillStyle = "rgba(25,50,20,.30)";
+  ctx.fillStyle = carBaseLift > 1 ? "rgba(25,50,20,.18)" : "rgba(25,50,20,.30)";
   ctx.beginPath(); ctx.ellipse(0, 0, car.len / 2 + 3, 11, 0, 0, TAU); ctx.fill();
   ctx.restore();
   const L = car.len;
@@ -2443,6 +2605,7 @@ function drawCar(t, car, p, ci){
     ctx.fillStyle = "rgba(255,255,255,.14)";
     rrectPath(ctx, -L / 2 + 2.5, -7.5, 15, 6, 3); ctx.fill();
   }
+  carBaseLift = 0;
   screenTransform();
 }
 /* ---------------- partículas ---------------- */
@@ -2995,7 +3158,16 @@ function renderAerial(){
   if (buildMode) drawBuildOverlay(vr);
   const ents = collectEntities(vr);
   screenTransform();
-  for (const e of ents) drawEntity(e);
+  for (const e of ents) if (!e.hi) drawEntity(e);
+  // capa elevada: viaductos + trenes por encima de todo lo del suelo
+  let hasElev = false;
+  for (const e of ents) if (e.hi){ hasElev = true; break; }
+  if (!hasElev){ for (const seg of segs.values()){ if (seg.elev){ hasElev = true; break; } } }
+  if (hasElev){
+    screenTransform();
+    drawElevatedTracks(vr);
+    for (const e of ents) if (e.hi) drawEntity(e);
+  }
   drawParticles();
   drawTrainOverlays();
   drawClouds();
@@ -3087,6 +3259,108 @@ function cabPathSamples(t, maxD, step){
     local += step; D += step;
   }
   return { pts, sws };
+}
+// dibuja un vagón/locomotora de otro tren visto desde la cabina (billboard de perfil)
+function drawCabTrainCar(x, baseY, u, car, train){
+  const col = TRAIN_COLORS[train.color];
+  const L = Math.max(12, car.len * u * 0.95);
+  const x0 = x - L / 2, x1 = x + L / 2;
+  const wr = Math.max(1.4, 3 * u);
+  const wheelY = baseY - wr;
+  const chY = wheelY - wr * 0.5;                 // parte baja del chasis
+  const bodyH = (car.kind === "loco" ? 17 : 14) * u;
+  const topY = chY - bodyH;
+  const lw = Math.max(0.8, 1.2 * u);
+  // sombra de contacto
+  ctx.fillStyle = "rgba(20,45,18,.32)";
+  ctx.beginPath(); ctx.ellipse(x, baseY, L * 0.56, wr * 0.85, 0, 0, TAU); ctx.fill();
+  // ruedas
+  const wheels = car.kind === "loco" ? [-0.34, -0.06, 0.24] : [-0.3, 0.3];
+  ctx.fillStyle = "#22232a";
+  for (const wf of wheels){ ctx.beginPath(); ctx.arc(x + wf * L, wheelY, wr, 0, TAU); ctx.fill(); }
+  ctx.fillStyle = "#4a4c57";
+  for (const wf of wheels){ ctx.beginPath(); ctx.arc(x + wf * L, wheelY, wr * 0.45, 0, TAU); ctx.fill(); }
+  // chasis
+  ctx.fillStyle = "#2a2b33";
+  rrectPath(ctx, x0, chY - 2 * u, L, 3.4 * u, 1.4 * u); ctx.fill();
+  // color del cuerpo según tipo
+  const bodyCol =
+    car.kind === "mercancias" ? { c: "#a9743f", d: "#6d4a26" } :
+    car.kind === "cisterna" ? { c: "#b9c3cf", d: "#6e7a87" } :
+    car.kind === "madera" ? { c: "#7a5836", d: "#4d3a24" } :
+    { c: col.c, d: col.d };
+  const grad = ctx.createLinearGradient(0, topY, 0, chY);
+  grad.addColorStop(0, hexShade(bodyCol.c, 1.18));
+  grad.addColorStop(0.5, bodyCol.c);
+  grad.addColorStop(1, bodyCol.d);
+  if (car.kind === "cisterna"){
+    // cuerpo cilíndrico
+    ctx.fillStyle = grad;
+    rrectPath(ctx, x0 + L * 0.06, topY + bodyH * 0.16, L * 0.88, bodyH * 0.72, bodyH * 0.34); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.22)"; ctx.lineWidth = lw;
+    rrectPath(ctx, x0 + L * 0.06, topY + bodyH * 0.16, L * 0.88, bodyH * 0.72, bodyH * 0.34); ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,.5)";
+    rrectPath(ctx, x0 + L * 0.14, topY + bodyH * 0.26, L * 0.7, bodyH * 0.13, bodyH * 0.06); ctx.fill();
+    ctx.fillStyle = col.c;
+    ctx.beginPath(); ctx.arc(x, topY + bodyH * 0.16, 2.2 * u, 0, TAU); ctx.fill();
+  } else {
+    ctx.fillStyle = grad;
+    rrectPath(ctx, x0, topY, L, bodyH, 2.6 * u); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.28)"; ctx.lineWidth = lw;
+    rrectPath(ctx, x0, topY, L, bodyH, 2.6 * u); ctx.stroke();
+    // techo iluminado
+    ctx.fillStyle = "rgba(255,255,255,.20)";
+    rrectPath(ctx, x0 + 1.5 * u, topY + 1.2 * u, L - 3 * u, bodyH * 0.24, 1.6 * u); ctx.fill();
+  }
+  if (car.kind === "loco"){
+    // cabina alta a un extremo
+    ctx.fillStyle = hexShade(col.d, 0.92);
+    rrectPath(ctx, x0, topY - bodyH * 0.28, L * 0.34, bodyH * 1.28, 2.4 * u); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.3)"; ctx.lineWidth = lw;
+    rrectPath(ctx, x0, topY - bodyH * 0.28, L * 0.34, bodyH * 1.28, 2.4 * u); ctx.stroke();
+    // ventana cabina
+    ctx.fillStyle = "#cfeaff";
+    rrectPath(ctx, x0 + L * 0.06, topY - bodyH * 0.14, L * 0.2, bodyH * 0.5, 1.4 * u); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.25)"; ctx.lineWidth = lw; ctx.stroke();
+    // domo
+    ctx.fillStyle = hexShade(col.c, 1.1);
+    ctx.beginPath(); ctx.arc(x + L * 0.12, topY + 0.5 * u, 2.6 * u, Math.PI, 0); ctx.fill();
+    // chimenea
+    const chimX = x + L * 0.34;
+    ctx.fillStyle = "#26262c";
+    rrectPath(ctx, chimX - 2.4 * u, topY - bodyH * 0.42, 4.8 * u, bodyH * 0.5, 1 * u); ctx.fill();
+    ctx.fillStyle = "#3a3b44";
+    rrectPath(ctx, chimX - 3.1 * u, topY - bodyH * 0.5, 6.2 * u, bodyH * 0.14, 1 * u); ctx.fill();
+    // faro
+    ctx.fillStyle = "rgba(255,240,150,.95)";
+    ctx.beginPath(); ctx.arc(x1 - 1.5 * u, topY + bodyH * 0.5, 2 * u, 0, TAU); ctx.fill();
+    // humo si se mueve
+    if (train.speed > 6){
+      const ph = (gameTime * 1.3 + train.id) % 1;
+      for (let i = 0; i < 3; i++){
+        const k = (ph + i * 0.33) % 1;
+        ctx.fillStyle = `rgba(210,210,215,${0.5 * (1 - k)})`;
+        ctx.beginPath(); ctx.arc(chimX + k * 6 * u, topY - bodyH * 0.5 - k * 22 * u, (2 + k * 5) * u, 0, TAU); ctx.fill();
+      }
+    }
+  } else if (car.kind === "pasajeros"){
+    ctx.fillStyle = "#bfe4ff";
+    const n = 3, wW = (L - 6 * u) / n;
+    for (let i = 0; i < n; i++){
+      rrectPath(ctx, x0 + 3 * u + i * wW + wW * 0.16, topY + bodyH * 0.28, wW * 0.68, bodyH * 0.4, 1.2 * u); ctx.fill();
+    }
+  } else if (car.kind === "mercancias"){
+    ctx.strokeStyle = "rgba(70,44,20,.7)"; ctx.lineWidth = lw;
+    for (let i = 1; i < 3; i++){
+      const gx = x0 + i * L / 3;
+      ctx.beginPath(); ctx.moveTo(gx, topY + 1.5 * u); ctx.lineTo(gx, chY - 1.5 * u); ctx.stroke();
+    }
+  } else if (car.kind === "madera"){
+    ctx.fillStyle = "#c9a06a";
+    for (const ly of [0.34, 0.6]){
+      rrectPath(ctx, x0 + 2.5 * u, topY + bodyH * ly, L - 5 * u, bodyH * 0.22, bodyH * 0.11); ctx.fill();
+    }
+  }
 }
 function renderCab(dt){
   const t = cabTrain;
@@ -3402,6 +3676,7 @@ function renderCab(dt){
     bills.push({ f: Math.max(f, 1), l, hill: h });
   }
   // otros trenes como billboards (y los propios vagones al mirar hacia atrás)
+  const ownElev = elevationAt(segs.get(hp.segId), hp.sLocal);
   for (const ot of trains){
     const own = ot === t;
     const cars = carList(ot);
@@ -3415,26 +3690,97 @@ function renderCab(dt){
       const l = -dx * sinH + dy * cosH;
       const px = xAt(l, f);
       if (px < -W * 0.4 || px > W * 1.4) continue;
-      bills.push({ f, l, train: ot, car });
+      const oelev = elevationAt(segs.get(p.segId), p.sLocal);
+      bills.push({ f, l, train: ot, car, oelev, ownElev });
     }
+  }
+  // vías elevadas (viaductos) sobre la cabeza: se ven al pasar por debajo
+  const HBR = 0.9;                          // cuánto sube el tablero en pantalla
+  const ceilAt = (f, hAbove) => {
+    const gY = yAt(f);
+    const ceil = horizonY - (bottomY - horizonY) * HBR * persp(f);
+    return lerp(gY, ceil, clamp(hAbove / BRIDGE_H, 0, 1));
+  };
+  function drawCabBridge(seg){
+    const halfW = RAIL_GAP / 2 + 4.5;
+    const S = [];
+    for (let i = 0; i < seg.px.length; i++){
+      const dx = seg.px[i] - hp.x, dy = seg.py[i] - hp.y;
+      const f = dx * cosH + dy * sinH;
+      const l = -dx * sinH + dy * cosH;
+      const hAbove = elevationAt(seg, seg.cum[i]) - ownElev;   // altura sobre el plano del jugador
+      S.push({ f, l, hAbove });
+    }
+    let run = [];
+    const flush = () => { if (run.length > 1) drawRun(run); run = []; };
+    for (const s of S){ if (s.f > 2 && s.f < 1500 && s.hAbove > 10) run.push(s); else flush(); }
+    flush();
+    function drawRun(run){
+      const L = [], R = [], C = [];
+      for (const s of run){
+        const dy = ceilAt(s.f, s.hAbove);
+        L.push({ x: xAt(s.l + halfW, s.f), y: dy });
+        R.push({ x: xAt(s.l - halfW, s.f), y: dy });
+        C.push({ x: xAt(s.l, s.f), y: dy, gY: yAt(s.f), f: s.f });
+      }
+      const T = Math.max(4, 9 * persp(run[Math.floor(run.length / 2)].f));   // grosor del tablero
+      // 1) pilares que bajan al suelo (detrás del tablero)
+      for (let i = 0; i < C.length; i += 2){
+        const c = C[i];
+        if (c.gY - c.y < 24) continue;
+        ctx.strokeStyle = "#9aa0ab"; ctx.lineCap = "round";
+        ctx.lineWidth = Math.max(3, 10 * persp(c.f));
+        ctx.beginPath(); ctx.moveTo(c.x, c.gY); ctx.lineTo(c.x, c.y + T); ctx.stroke();
+        ctx.strokeStyle = "rgba(40,50,65,.25)"; ctx.lineWidth = Math.max(1.5, 4 * persp(c.f));
+        const off = Math.max(2, 3 * persp(c.f));
+        ctx.beginPath(); ctx.moveTo(c.x + off, c.gY); ctx.lineTo(c.x + off, c.y + T); ctx.stroke();
+      }
+      const ribbon = (arrTop, arrBot, style) => {
+        ctx.fillStyle = style;
+        ctx.beginPath();
+        ctx.moveTo(arrTop[0].x, arrTop[0].y);
+        for (let i = 1; i < arrTop.length; i++) ctx.lineTo(arrTop[i].x, arrTop[i].y);
+        for (let i = arrBot.length - 1; i >= 0; i--) ctx.lineTo(arrBot[i].x, arrBot[i].y);
+        ctx.closePath(); ctx.fill();
+      };
+      const Lb = L.map(p => ({ x: p.x, y: p.y + T })), Rb = R.map(p => ({ x: p.x, y: p.y + T }));
+      ribbon(L, R, "#9aa1ac");        // cara superior del tablero (visible de lejos)
+      ribbon(L, Lb, "#606b78");       // canto lateral izquierdo
+      ribbon(R, Rb, "#606b78");       // canto lateral derecho
+      ribbon(Lb, Rb, "#464f5a");      // cara inferior (lo que ves al pasar por debajo)
+      ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.lineWidth = Math.max(1, 1.6 * persp(run[0].f));
+      for (const arr of [L, R]){
+        ctx.beginPath();
+        for (let i = 0; i < arr.length; i++){ if (i === 0) ctx.moveTo(arr[i].x, arr[i].y); else ctx.lineTo(arr[i].x, arr[i].y); }
+        ctx.stroke();
+      }
+    }
+  }
+  for (const seg of segs.values()){
+    if (!seg.elev) continue;
+    let nf = Infinity, vis = false;
+    for (let i = 0; i < seg.px.length; i++){
+      const dx = seg.px[i] - hp.x, dy = seg.py[i] - hp.y;
+      const f = dx * cosH + dy * sinH;
+      if (f > 2 && f < 1500 && (elevationAt(seg, seg.cum[i]) - ownElev) > 10){ vis = true; if (f < nf) nf = f; }
+    }
+    if (vis) bills.push({ f: nf, l: 0, bridge: seg });
   }
   bills.sort((a, b) => b.f - a.f);
   starOccluders.length = 0;   // recolectar siluetas que taparán las estrellas del cielo
   for (const b of bills){
+    if (b.bridge){ drawCabBridge(b.bridge); continue; }
     const sc = persp(b.f), x = xAt(b.l, b.f), y = yAt(b.f);
     if (b.hill){ drawCabHill(b.hill, b.f, b.l); continue; }
     if (b.train){
-      const col = TRAIN_COLORS[b.train.color];
-      const w = 30 * KX * sc * 0.055, h = 26 * KX * sc * 0.055;
-      ctx.fillStyle = "rgba(30,60,25,.3)";
-      ctx.beginPath(); ctx.ellipse(x, y, w * 0.7, h * 0.16, 0, 0, TAU); ctx.fill();
-      ctx.fillStyle = b.car.kind === "loco" ? col.c : (b.car.kind === "mercancias" ? "#9c6b3c" : b.car.kind === "cisterna" ? "#9aa7b5" : b.car.kind === "madera" ? "#8a5a2e" : col.c);
-      rrectPath(ctx, x - w / 2, y - h, w, h, w * 0.2); ctx.fill();
-      ctx.strokeStyle = "rgba(0,0,0,.35)"; ctx.lineWidth = Math.max(1, 2 * sc);
-      rrectPath(ctx, x - w / 2, y - h, w, h, w * 0.2); ctx.stroke();
-      if (b.car.kind === "loco"){
-        ctx.fillStyle = "#2f2f36";
-        ctx.fillRect(x - w * 0.16, y - h * 1.28, w * 0.32, h * 0.32);
+      const u = KX * sc * 0.17;   // escala mundo→pantalla (tamaño de tren "real")
+      // desnivel: si el otro tren va elevado (o yo lo estoy), se ve más alto/bajo
+      const yBase = y - (b.oelev - b.ownElev) * u;
+      drawCabTrainCar(x, yBase, u, b.car, b.train);
+      // silueta para tapar estrellas si está cerca
+      if (b.f < 500){
+        const L = Math.max(10, b.car.len * u * 0.95);
+        starOccluders.push({ x0: x - L * 0.5, x1: x + L * 0.5, y0: yBase - 26 * u, y1: yBase });
       }
       continue;
     }
@@ -3696,6 +4042,7 @@ function setBuildTool(tool){
   updateToolButtons();
   ui.buildHint.textContent =
     tool === "track" ? "Arrastra desde un punto brillante ✨ para crear vías" :
+    tool === "elevated" ? "Arrastra desde un punto ✨ para crear una vía elevada 🌉 (otras pasan por debajo)" :
     tool === "join" ? "Toca dos extremos ✨ para unirlos y cerrar el circuito 🔗" :
     tool === "erase" ? "Toca un tramo de vía para borrarlo 🧽" :
     "Toca la vía donde quieras una estación 🚉";
@@ -3703,6 +4050,7 @@ function setBuildTool(tool){
 }
 function updateToolButtons(){
   ui.toolTrack.classList.toggle("on", buildTool === "track");
+  ui.toolElevated.classList.toggle("on", buildTool === "elevated");
   ui.toolJoin.classList.toggle("on", buildTool === "join");
   ui.toolErase.classList.toggle("on", buildTool === "erase");
   ui.toolStation.classList.toggle("on", buildTool === "station");
@@ -3811,7 +4159,8 @@ function eraseSceneryAt(wx, wy){
 }
 function quantAngle(a){ return Math.round(a / (Math.PI / 4)) * (Math.PI / 4); }
 /* validez de una pieza candidata (muestrea y comprueba distancias) */
-function pieceClear(piece, ignoreNodeA, ignoreNodeB){
+function pieceClear(piece, ignoreNodeA, ignoreNodeB, elev){
+  const lvl = elev ? 1 : 0;
   const P = [];
   for (let i = 0; i <= 6; i++){
     P.push(cubic(piece.p0[0], piece.p0[1], piece.c1[0], piece.c1[1], piece.c2[0], piece.c2[1], piece.p3[0], piece.p3[1], i / 6));
@@ -3820,6 +4169,7 @@ function pieceClear(piece, ignoreNodeA, ignoreNodeB){
     if (x < 40 || y < 40 || x > WORLD.w - 40 || y > WORLD.h - 40) return false;
   }
   for (const sg of segs.values()){
+    if ((sg.elev ? 1 : 0) !== lvl) continue;   // niveles distintos pueden cruzarse (una vía pasa por debajo)
     const touchesIgnored = sg.a === ignoreNodeA || sg.b === ignoreNodeA || sg.a === ignoreNodeB || sg.b === ignoreNodeB;
     for (let i = touchesIgnored ? 2 : 0; i < P.length - (touchesIgnored ? 2 : 0); i++){
       const [x, y] = P[i];
@@ -3831,7 +4181,7 @@ function pieceClear(piece, ignoreNodeA, ignoreNodeB){
   return true;
 }
 function buildPointerDown(wx, wy){
-  if (buildTool !== "track") return false;
+  if (buildTool !== "track" && buildTool !== "elevated") return false;
   const tol = Math.max(30, 40 / cam.z);
   const n = nearestNode(wx, wy, tol);
   if (!n) return false;
@@ -3841,7 +4191,7 @@ function buildPointerDown(wx, wy){
     const [ox, oy] = outwardTangent(sg, n.id);
     dirA = Math.atan2(-oy, -ox); // hacia el vacío
   }
-  buildDrag = { endNode: n, dirA, cand: null, laid: 0 };
+  buildDrag = { endNode: n, dirA, cand: null, laid: 0, elev: buildTool === "elevated" ? 1 : 0 };
   return true;
 }
 function buildPointerMove(wx, wy){
@@ -3894,13 +4244,13 @@ function buildPointerMove(wx, wy){
           c2: [target.x - ax * k, target.y - ay * k],
           endA: Math.atan2(ay, ax)
         };
-        const valid = pieceClear(conn, E.id, target.id);
+        const valid = pieceClear(conn, E.id, target.id, bd.elev);
         bd.cand = { piece: conn, kind: "weld", weldNode: target, valid };
         return;
       }
     }
   }
-  const valid = pieceClear(piece, E.id, -1);
+  const valid = pieceClear(piece, E.id, -1, bd.elev);
   bd.cand = { piece, kind, valid };
   // confirmar pieza si el arrastre va más allá de su final
   if (valid && kind !== "weld"){
@@ -3914,7 +4264,7 @@ function buildPointerMove(wx, wy){
 function commitPiece(piece){
   const bd = buildDrag;
   const nn = addNode(piece.p3[0], piece.p3[1]);
-  addSeg(bd.endNode.id, nn.id, piece.c1[0], piece.c1[1], piece.c2[0], piece.c2[1]);
+  addSeg(bd.endNode.id, nn.id, piece.c1[0], piece.c1[1], piece.c2[0], piece.c2[1], bd.elev);
   bd.endNode = nn;
   bd.dirA = piece.endA;
   bd.cand = null;
@@ -3932,7 +4282,7 @@ function buildPointerUp(wx, wy){
   if (bd.cand && bd.cand.kind === "weld" && bd.cand.valid){
     const target = bd.cand.weldNode;
     const p = bd.cand.piece;
-    addSeg(bd.endNode.id, target.id, p.c1[0], p.c1[1], p.c2[0], p.c2[1]);
+    addSeg(bd.endNode.id, target.id, p.c1[0], p.c1[1], p.c2[0], p.c2[1], bd.elev);
     buildCount++;
     if (buildCount >= 10) achieve("constructor");
     for (let i = 0; i < 6; i++) spawnSteam(target.x + rand(-10, 10), target.y + rand(-8, 8));
@@ -4092,12 +4442,24 @@ function drawBuildOverlay(vr){
   if (buildDrag && buildDrag.cand && buildDrag.cand.piece){
     const c = buildDrag.cand;
     const p = c.piece;
-    ctx.strokeStyle = c.valid ? "rgba(80,220,90,.75)" : "rgba(230,60,50,.75)";
+    const elevBuild = buildDrag.elev;
+    if (elevBuild){
+      // sombra proyectada en el suelo (indica que va por lo alto)
+      ctx.strokeStyle = "rgba(30,40,60,.22)"; ctx.lineWidth = 15; ctx.lineCap = "round";
+      ctx.beginPath();
+      for (let i = 0; i <= 10; i++){
+        const [x, y] = cubic(p.p0[0], p.p0[1], p.c1[0], p.c1[1], p.c2[0], p.c2[1], p.p3[0], p.p3[1], i / 10);
+        if (i === 0) ctx.moveTo(x + 4, y + BRIDGE_H * 0.7); else ctx.lineTo(x + 4, y + BRIDGE_H * 0.7);
+      }
+      ctx.stroke();
+    }
+    ctx.strokeStyle = c.valid ? (elevBuild ? "rgba(90,170,235,.85)" : "rgba(80,220,90,.75)") : "rgba(230,60,50,.75)";
     ctx.lineWidth = 14; ctx.lineCap = "round";
     ctx.beginPath();
     for (let i = 0; i <= 10; i++){
       const [x, y] = cubic(p.p0[0], p.p0[1], p.c1[0], p.c1[1], p.c2[0], p.c2[1], p.p3[0], p.p3[1], i / 10);
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      const ly = elevBuild ? y - BRIDGE_H * 0.7 : y;
+      if (i === 0) ctx.moveTo(x, ly); else ctx.lineTo(x, ly);
     }
     ctx.stroke();
     if (c.weldNode){
@@ -4185,7 +4547,7 @@ function onPointerDown(e){
     return;
   }
   const [wx, wy] = unproj(sx, sy);
-  if (buildMode && buildTool === "track" && buildPointerDown(wx, wy)){
+  if (buildMode && (buildTool === "track" || buildTool === "elevated") && buildPointerDown(wx, wy)){
     gesture = { type: "build", sx0: sx, sy0: sy };
     return;
   }
@@ -4605,7 +4967,7 @@ function setupHold(btn, ms, cb){
 /* ---------------- inicialización de la UI ---------------- */
 function initUI(){
   const ids = ["medalIcon","medalTime","btnSound","btnFull","btnSettings","bottomBar","btnNewTrain","btnLocate","btnBuild","btnScenery",
-    "colorPicker","trainListPanel","buildPanel","toolTrack","toolJoin","toolErase","toolStation","btnBuildDone","buildBand","buildHint",
+    "colorPicker","trainListPanel","buildPanel","toolTrack","toolElevated","toolJoin","toolErase","toolStation","btnBuildDone","buildBand","buildHint",
     "sceneryPanel","sceneryBand","scTree","scPine","scHouse","scCow","scSheep","scPerson","scLake","scMountain","scRiver","scErase","btnSceneryDone",
     "trainPanel","tpName","tpPlay","tpReverse","tpFollow","tpCab","tpSpeed","tpAddWagon","tpDelWagon","tpDelete",
     "cabUI","btnBackMap","btnHorn","cabSpeedRange","btnCabStop","settingsPanel","stTutorial","stReset","stTime","stTimeLabel","stTimeAuto","stWeather","toast","toastText","bubble","bubbleText","bubbleSkip","hand","topLeft","topRight"];
@@ -4644,6 +5006,7 @@ function initUI(){
   ui.btnBuild.addEventListener("click", () => setBuildMode(!buildMode));
   ui.btnBuildDone.addEventListener("click", () => setBuildMode(false));
   ui.toolTrack.addEventListener("click", () => setBuildTool("track"));
+  ui.toolElevated.addEventListener("click", () => setBuildTool("elevated"));
   ui.toolJoin.addEventListener("click", () => setBuildTool("join"));
   ui.toolErase.addEventListener("click", () => setBuildTool("erase"));
   ui.toolStation.addEventListener("click", () => setBuildTool("station"));
@@ -4802,7 +5165,7 @@ function serialize(){
   return {
     v: 1, nid, sid, stationId, trainId,
     nodes: [...nodes.values()].map(n => [n.id, +n.x.toFixed(2), +n.y.toFixed(2)]),
-    segs: [...segs.values()].map(s => [s.id, s.a, s.b, +s.c[0].toFixed(2), +s.c[1].toFixed(2), +s.c[2].toFixed(2), +s.c[3].toFixed(2)]),
+    segs: [...segs.values()].map(s => [s.id, s.a, s.b, +s.c[0].toFixed(2), +s.c[1].toFixed(2), +s.c[2].toFixed(2), +s.c[3].toFixed(2), s.elev ? 1 : 0]),
     stations: [...stationsMap.values()].map(st => [st.id, st.seg, +st.s.toFixed(2)]),
     switches: [...switches.entries()].map(([nId, sw]) => [nId, sw.active]),
     trains: tArr,
@@ -4833,7 +5196,7 @@ function deserialize(d){
     if (!Array.isArray(sd) || sd.length < 7) continue;
     const [id, a, b, c1x, c1y, c2x, c2y] = sd;
     if (!nodes.has(a) || !nodes.has(b)) continue;
-    const s = { id, a, b, c: [c1x, c1y, c2x, c2y], bridges: [], stations: [] };
+    const s = { id, a, b, c: [c1x, c1y, c2x, c2y], bridges: [], stations: [], elev: sd[7] ? 1 : 0, ramp: null };
     segs.set(id, s);
     nodes.get(a).segs.push(id);
     nodes.get(b).segs.push(id);
@@ -4843,6 +5206,7 @@ function deserialize(d){
   for (const n of [...nodes.values()]) if (!n.segs.length) nodes.delete(n.id);
   if (!segs.size) return false;
   for (const n of nodes.values()) refreshSwitchAt(n.id);
+  recomputeElevation();
   if (Array.isArray(d.switches)){
     for (const [nId, act] of d.switches){
       const sw = switches.get(nId);
