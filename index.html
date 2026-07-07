@@ -2073,7 +2073,18 @@ function drawEntity(e){
       case "footbridge": s = sprFootbridge(); break;
       case "windmill": drawWindmill(d); return;
     }
-    if (s) drawSprite(s, d.x, d.y, d.s);
+    if (s){
+      // salto al paso del tren (personas y animales); el resto se dibuja normal
+      if (d.react > 0.15 && (d.type === "person" || d.type === "cow" || d.type === "sheep")){
+        const react = clamp(d.react, 0, 1);
+        const hop = Math.abs(Math.sin(gameTime * 9)) * s.hu * 0.07 * react;
+        const [sx, sy] = proj(d.x, d.y);
+        const w = s.wu * cam.z * d.s, h = s.hu * cam.z * d.s;
+        ctx.drawImage(s.cv, sx - s.ax * cam.z * d.s, sy - (s.ay + hop) * cam.z * d.s, w, h);
+      } else {
+        drawSprite(s, d.x, d.y, d.s);
+      }
+    }
     // humo de chimenea de las casas
     if (d.type === "house" && quality > 0 && d.v > 0.4){
       if ((gameTime + d.v * 5) % 1.1 < 0.02) spawnSmoke(d.x + 15 * d.s, d.y - 62 * d.s, 0.55);
@@ -2609,10 +2620,40 @@ function updateAmbient(dt){
   for (let i = birds.length - 1; i >= 0; i--){
     const b = birds[i];
     b.x += b.vx * dt; b.y += b.vy * dt; b.ph += dt * 9;
-    if (b.x > WORLD.w + 80) birds.splice(i, 1);
+    if (b.vy < 0) b.vy += dt * 3;   // los que salen volando se van nivelando
+    if (b.x > WORLD.w + 80 || b.x < -120 || b.y < -80) birds.splice(i, 1);
+  }
+}
+function spawnBirdsAt(x, y, n){
+  for (let i = 0; i < n && birds.length < 10; i++){
+    birds.push({ x: x + rand(-10, 10), y: y - rand(0, 30), vx: rand(38, 78) * (Math.random() < 0.5 ? -1 : 1), vy: rand(-30, -14), ph: rand(0, TAU) });
   }
 }
 let birdTimer = 5;
+// ----- reacciones del paisaje al paso del tren (animales, personas, pájaros) -----
+function updateReactions(dt){
+  for (const d of decor){
+    if (d.react > 0) d.react = Math.max(0, d.react - dt);
+    if (d.birdCd > 0) d.birdCd -= dt;
+  }
+  for (const t of trains){
+    if (Math.abs(t.speed) < 8) continue;   // solo reaccionan con el tren en marcha
+    const hp = trainPosAt(t, t.headS);
+    for (const d of decor){
+      if (d.type === "person" || d.type === "cow" || d.type === "sheep"){
+        const rad = d.type === "person" ? 155 : 135;
+        if (dist2(hp.x, hp.y, d.x, d.y) > rad * rad) continue;
+        d.react = Math.min(1.2, (d.react || 0) + dt * 5);   // saluda/salta mientras el tren pasa
+      } else if (d.type === "tree" || d.type === "pine" || d.type === "bush"){
+        if ((d.birdCd || 0) > 0) continue;
+        if (dist2(hp.x, hp.y, d.x, d.y) > 115 * 115) continue;
+        d.birdCd = rand(9, 16);
+        d.react = 1;   // los pájaros echan a volar
+        if (viewMode === "aerial") spawnBirdsAt(d.x, d.y - 30 * d.s, randi(1, 3));
+      }
+    }
+  }
+}
 function drawClouds(){
   screenTransform();
   const g = cloudGloom();
@@ -2983,12 +3024,14 @@ function renderAerial(){
    ============================================================ */
 let cabIntro = 1, cabSwitchHits = [], cabPuffs = [];
 let cabAng = 0, cabSway = 0;   // rumbo suavizado + balanceo lateral de la cabina
+let cabLook = 0, cabLookVel = 0;   // giro libre de la cabeza para mirar el paisaje
 function enterCab(t){
   cabTrain = t;
   viewMode = "cab";
   cabIntro = 0;
   cabAng = trainPosAt(t, t.headS).ang;   // arranca sin barrido de cámara
   cabSway = 0;
+  cabLook = 0; cabLookVel = 0;
   ui.cabUI.classList.add("show");
   ui.trainPanel.classList.remove("show");
   ui.bottomBar.style.display = "none";
@@ -3060,7 +3103,15 @@ function renderCab(dt){
   }
   const targetAng = hp.ang + angNorm(aheadAng - hp.ang) * 0.38;   // sesgo suave hacia la curva
   cabAng = angNorm(cabAng + angNorm(targetAng - cabAng) * Math.min(1, dt * 6));
-  const h0 = cabAng;
+  // ----- mirar alrededor: inercia al soltar + recentrado suave hacia el frente -----
+  const cabLooking = gesture && gesture.type === "cablook";
+  if (!cabLooking){
+    cabLook = angNorm(cabLook + cabLookVel * dt);
+    cabLookVel *= Math.exp(-dt * 3.2);
+    if (Math.abs(cabLookVel) < 0.02) cabLookVel = 0;
+    cabLook -= cabLook * Math.min(1, dt * 0.5);   // regresa poco a poco a mirar al frente
+  }
+  const h0 = angNorm(cabAng + cabLook);
   // ----- balanceo de cabina (traqueteo) sincronizado con la velocidad -----
   const spd = clamp(t.speed / MAX_SPEED, 0, 1);
   const curve = angNorm(aheadAng - hp.ang);
@@ -3350,11 +3401,13 @@ function renderCab(dt){
     const l = -dx * sinH + dy * cosH;
     bills.push({ f: Math.max(f, 1), l, hill: h });
   }
-  // otros trenes como billboards
+  // otros trenes como billboards (y los propios vagones al mirar hacia atrás)
   for (const ot of trains){
-    if (ot === t) continue;
+    const own = ot === t;
     const cars = carList(ot);
-    for (const car of cars){
+    for (let ci = 0; ci < cars.length; ci++){
+      if (own && ci === 0) continue;   // no dibujar la propia cabina
+      const car = cars[ci];
       const p = trainPosAt(ot, car.mid);
       const dx = p.x - hp.x, dy = p.y - hp.y;
       const f = dx * cosH + dy * sinH;
@@ -3428,10 +3481,29 @@ function renderCab(dt){
       ctx.translate(x, y); ctx.rotate(swA);
       ctx.drawImage(s.cv, -anchX, -anchY, wpx, hpx);
       ctx.restore();
+      // pájaros que echan a volar al pasar el tren cerca
+      if (d.react > 0){
+        const prog = 1 - clamp(d.react, 0, 1);   // react va de 1 → 0 mientras se alejan
+        const bs = clamp(wpx / 60, 0.45, 1.8);
+        ctx.globalAlpha = alpha * clamp(d.react * 1.5, 0, 1);
+        ctx.strokeStyle = "#333"; ctx.lineWidth = Math.max(1, 2 * bs); ctx.lineCap = "round";
+        for (let i = 0; i < 3; i++){
+          const bx = x + Math.cos(i * 2.1 + 1) * (12 + prog * 70) * bs;
+          const by = (y - hpx * 0.72) - prog * 60 * bs - Math.abs(Math.sin(gameTime * 11 + i)) * 5 * bs;
+          const fl = Math.sin(gameTime * 20 + i * 2) * 4 * bs;   // aleteo
+          ctx.beginPath();
+          ctx.moveTo(bx - 6 * bs, by + fl);
+          ctx.quadraticCurveTo(bx - 2 * bs, by - 3 * bs, bx, by);
+          ctx.quadraticCurveTo(bx + 2 * bs, by - 3 * bs, bx + 6 * bs, by + fl);
+          ctx.stroke();
+        }
+      }
     } else if (d.type === "cow" || d.type === "sheep" || d.type === "person"){
-      // pequeño bamboleo de los animales/personas
+      // pequeño bamboleo + salto al pasar el tren
+      const react = clamp(d.react || 0, 0, 1);
+      const hop = react > 0 ? Math.abs(Math.sin(gameTime * 9)) * hpx * 0.16 * react : 0;
       const bob = Math.sin(gameTime * 3 + d.x * 0.1) * hpx * 0.03;
-      ctx.drawImage(s.cv, x - anchX, y - anchY + bob, wpx, hpx);
+      ctx.drawImage(s.cv, x - anchX, y - anchY + bob - hop, wpx, hpx);
     } else {
       ctx.drawImage(s.cv, x - anchX, y - anchY, wpx, hpx);
     }
@@ -4099,6 +4171,8 @@ function onPointerDown(e){
     for (const h of cabSwitchHits){
       if (dist2(sx, sy, h.x, h.y) < h.r * h.r){ toggleSwitch(h.node); return; }
     }
+    gesture = { type: "cablook", lastX: sx, vel: 0 };
+    cabLookVel = 0;
     return;
   }
   if (pointers.size === 2){
@@ -4141,7 +4215,14 @@ function onPointerMove(e){
   const [sx, sy] = canvasPos(e);
   const dx = sx - p.x, dy = sy - p.y;
   p.x = sx; p.y = sy;
-  if (viewMode === "cab") return;
+  if (viewMode === "cab"){
+    if (gesture && gesture.type === "cablook"){
+      const dl = (dx / Math.max(1, W)) * 2.6;   // arrastrar todo el ancho ≈ girar ~150°
+      cabLook = angNorm(cabLook - dl);           // "agarrar" el paisaje y desplazarlo
+      gesture.vel = -dl;
+    }
+    return;
+  }
   if (gesture && gesture.type === "pinch" && pointers.size >= 2){
     const ps = [...pointers.values()];
     const d = Math.max(20, dist(ps[0].x, ps[0].y, ps[1].x, ps[1].y));
@@ -4193,7 +4274,10 @@ function onPointerUp(e){
   const p = pointers.get(e.pointerId);
   pointers.delete(e.pointerId);
   clearTimeout(longPressTimer);
-  if (viewMode === "cab"){ gesture = null; return; }
+  if (viewMode === "cab"){
+    if (gesture && gesture.type === "cablook") cabLookVel = clamp(gesture.vel * 42, -7, 7);
+    gesture = null; return;
+  }
   if (!gesture) return;
   if (gesture.type === "pinch"){
     if (pointers.size < 2){
@@ -4846,6 +4930,7 @@ function update(dt){
   updateParticles(dt);
   updateAmbient(dt);
   updateWeather(dt);
+  updateReactions(dt);
   const anyMoving = trains.some(t => t.speed > 10);
   if (anyMoving) medalTime += dt;
   if (medalTime >= 300) achieve("seguro");
