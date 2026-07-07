@@ -4502,7 +4502,11 @@ function trainAt(wx, wy){
   for (const t of trains){
     for (const car of carList(t)){
       const p = trainPosAt(t, car.mid);
-      if (dist2(wx, wy, p.x, p.y) < tol * tol) return t;
+      // los trenes elevados se dibujan más arriba: su centro visible equivale
+      // a una posición de suelo desplazada hacia arriba (elev/SQ en mundo)
+      const elev = elevationAt(segs.get(p.segId), p.sLocal);
+      const vy = p.y - elev / SQ;
+      if (dist2(wx, wy, p.x, vy) < tol * tol) return t;
     }
   }
   return null;
